@@ -153,4 +153,7 @@ pub fn build(b: *std.Build) void {
     //
     // Lastly, the Zig build system is relatively simple and self-contained,
     // and reading its source code will allow you to master it.
+
+    const check = b.step("check", "Check if foo compiles");
+    check.dependOn(&exe.step);
 }
