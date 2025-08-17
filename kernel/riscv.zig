@@ -64,10 +64,23 @@ pub fn csrw(comptime reg: WriteCSR, val: u64) void {
     );
 }
 
+/// Read from the given register.
+pub fn read(comptime reg: enum { tp }) u64 {
+    return asm volatile (std.fmt.comptimePrint("mv %[ret], {s}", .{@tagName(reg)})
+        : [ret] "=r" (-> u64),
+    );
+}
+
 /// Write a value to the given register.
 pub fn write(comptime reg: enum { tp }, val: u64) void {
     asm volatile (std.fmt.comptimePrint("mv {s}, %[val]", .{@tagName(reg)})
         :
         : [val] "r" (val),
     );
+}
+
+/// The unique id for the current CPU. Must be called with interrupts disabled,
+/// to prevent race with process being moved to a different CPU.
+pub fn cpu_id() u8 {
+    return @intCast(read(.tp));
 }
