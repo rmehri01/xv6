@@ -21,9 +21,8 @@
       in
       {
         devShells.default = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [
+          nativeBuildInputs = [
             inputs.zig.packages.${system}.master
-            zls
           ];
           buildInputs = with pkgs; [ qemu ];
         };
