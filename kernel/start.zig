@@ -4,6 +4,8 @@ const main = @import("main.zig");
 const params = @import("params.zig");
 const riscv = @import("riscv.zig");
 
+pub const panic = main.panic;
+
 /// entry.S needs one stack per CPU.
 export const stack0: [params.STACK_SIZE * params.NCPU]u8 align(16) = undefined;
 
