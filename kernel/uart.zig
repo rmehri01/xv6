@@ -27,32 +27,32 @@ const LSR_TX_IDLE = 1 << 5;
 
 pub fn init() void {
     // disable interrupts.
-    write_reg(.ier, 0x00);
+    writeReg(.ier, 0x00);
 
     // special mode to set baud rate.
-    write_reg(.lcr, LCR_BAUD_LATCH);
+    writeReg(.lcr, LCR_BAUD_LATCH);
 
     // LSB for baud rate of 38.4K.
-    write_reg(.div_lsb, 0x03);
+    writeReg(.div_lsb, 0x03);
 
     // MSB for baud rate of 38.4K.
-    write_reg(.div_msb, 0x00);
+    writeReg(.div_msb, 0x00);
 
     // leave set-baud mode,
     // and set word length to 8 bits, no parity.
-    write_reg(.lcr, LCR_EIGHT_BITS);
+    writeReg(.lcr, LCR_EIGHT_BITS);
 
     // reset and enable FIFOs.
-    write_reg(.fcr, FCR_FIFO_ENABLE | FCR_FIFO_CLEAR);
+    writeReg(.fcr, FCR_FIFO_ENABLE | FCR_FIFO_CLEAR);
 
     // enable transmit and receive interrupts.
-    write_reg(.ier, IER_TX_ENABLE | IER_RX_ENABLE);
+    writeReg(.ier, IER_TX_ENABLE | IER_RX_ENABLE);
 }
 
 /// Try to read one input character from the UART, returning null if none is waiting.
-pub fn get_char() ?u8 {
-    if (read_reg(.lsr) & LSR_RX_READY == 1) {
-        return read_reg(.rhr);
+pub fn getChar() ?u8 {
+    if (readReg(.lsr) & LSR_RX_READY == 1) {
+        return readReg(.rhr);
     } else {
         return null;
     }
@@ -61,9 +61,9 @@ pub fn get_char() ?u8 {
 /// Alternate version of put_char() that doesn't use interrupts, for
 /// use by fmt.print() and to echo characters.
 /// It spins waiting for the uart's output register to be empty.
-fn put_char_sync(ch: u8) void {
-    while ((read_reg(.lsr) & LSR_TX_IDLE) == 0) {}
-    write_reg(.thr, ch);
+fn putCharSync(ch: u8) void {
+    while ((readReg(.lsr) & LSR_TX_IDLE) == 0) {}
+    writeReg(.thr, ch);
 }
 
 /// Registers that are readable.
@@ -77,7 +77,7 @@ const ReadReg = enum {
 };
 
 /// Read from the given register.
-fn read_reg(comptime reg: ReadReg) u8 {
+fn readReg(comptime reg: ReadReg) u8 {
     const offset = switch (reg) {
         .rhr => 0,
         .isr => 2,
@@ -104,7 +104,7 @@ const WriteReg = enum {
 };
 
 /// Write val to the given register.
-fn write_reg(comptime reg: WriteReg, val: u8) void {
+fn writeReg(comptime reg: WriteReg, val: u8) void {
     const offset = switch (reg) {
         .thr, .div_lsb => 0,
         .ier, .div_msb => 1,
@@ -133,14 +133,14 @@ const SyncUartWriter = struct {
     fn drain(io_w: *std.Io.Writer, data: []const []const u8, splat: usize) !usize {
         var written: usize = 0;
 
-        written += uart_put_str_sync(io_w.buffered());
+        written += uartPutStrSync(io_w.buffered());
         io_w.end = 0;
 
         for (data[0 .. data.len - 1]) |chunk| {
-            written += uart_put_str_sync(chunk);
+            written += uartPutStrSync(chunk);
         }
         for (0..splat) |_| {
-            written += uart_put_str_sync(data[data.len - 1]);
+            written += uartPutStrSync(data[data.len - 1]);
         }
 
         return written;
@@ -148,9 +148,9 @@ const SyncUartWriter = struct {
 };
 
 /// Prints a string one character at a time to the UART.
-fn uart_put_str_sync(str: []const u8) usize {
+fn uartPutStrSync(str: []const u8) usize {
     for (str) |ch| {
-        put_char_sync(ch);
+        putCharSync(ch);
     }
     return str.len;
 }

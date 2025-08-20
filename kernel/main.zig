@@ -4,6 +4,7 @@
 const std = @import("std");
 
 const fmt = @import("fmt.zig");
+const heap = @import("heap.zig");
 const riscv = @import("riscv.zig");
 const uart = @import("uart.zig");
 
@@ -12,8 +13,19 @@ pub const panic = std.debug.FullPanic(panicImpl);
 fn panicImpl(msg: []const u8, first_trace_addr: ?usize) noreturn {
     @branchHint(.cold);
 
-    const cpu_id = riscv.cpu_id();
-    fmt.println("hart {d}: KERNEL PANIC! {s} addr={?x}", .{ cpu_id, msg, first_trace_addr });
+    const cpu_id = riscv.cpuId();
+
+    var w = &uart.sync_writer;
+    w.mutex.lock();
+    w.interface.print("hart {d}: KERNEL PANIC! {s}\n", .{ cpu_id, msg }) catch {};
+    if (first_trace_addr) |first_addr| {
+        var it = std.debug.StackIterator.init(first_addr, null);
+        while (it.next()) |addr| {
+            w.interface.print("  0x{x}\n", .{addr}) catch {};
+        }
+    }
+    w.interface.flush() catch {};
+    w.mutex.unlock();
 
     while (true) {}
 }
@@ -22,9 +34,10 @@ var started = std.atomic.Value(bool).init(false);
 
 /// start() jumps here in supervisor mode on all CPUs.
 pub fn kmain() noreturn {
-    const cpu_id = riscv.cpu_id();
+    const cpu_id = riscv.cpuId();
     if (cpu_id == 0) {
         uart.init();
+        heap.init();
         fmt.println("xv6 kernel is booting", .{});
         started.store(true, .release);
     } else {

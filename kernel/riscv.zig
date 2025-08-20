@@ -2,6 +2,9 @@
 
 const std = @import("std");
 
+/// Bytes per page.
+pub const PAGE_SIZE = 4096;
+
 // Machine Status Register
 /// Previous Mode
 pub const MSTATUS_MPP_MASK = 3 << 11;
@@ -81,6 +84,6 @@ pub fn write(comptime reg: enum { tp }, val: u64) void {
 
 /// The unique id for the current CPU. Must be called with interrupts disabled,
 /// to prevent race with process being moved to a different CPU.
-pub fn cpu_id() u8 {
+pub fn cpuId() u8 {
     return @intCast(read(.tp));
 }
