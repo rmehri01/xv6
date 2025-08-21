@@ -9,7 +9,22 @@ const vm = @import("vm.zig");
 const riscv = @import("riscv.zig");
 
 var cpus: [params.MAX_CPUS]Cpu = undefined;
-var procs: [params.MAX_PROCS]Process = undefined;
+var procs: [params.MAX_PROCS]Process = value: {
+    var init_procs: [params.MAX_PROCS]Process = undefined;
+
+    for (0.., &init_procs) |proc_num, *proc| {
+        proc.* = .{
+            .mutex = .{},
+            .parent = null,
+            .public = .{ .state = .unused },
+            .private = .{
+                .kstack = vm.kStackVAddr(proc_num),
+            },
+        };
+    }
+
+    break :value init_procs;
+};
 var next_pid: atomic.Value(u32) = .init(1);
 
 /// Per-CPU state.
@@ -36,22 +51,29 @@ const Process = struct {
         /// Virtual address of kernel stack.
         kstack: u64,
     },
+
+    /// Give up the CPU for one scheduling round.
+    pub fn yield(self: *Process) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        self.public.state = .runnable;
+        sched();
+    }
 };
 
 /// The possible states a process can be in.
 const ProcessState = enum { unused, used, sleeping, runnable, running, zombie };
 
-pub fn init() void {
-    for (0.., &procs) |proc_num, *proc| {
-        proc.* = .{
-            .mutex = .{},
-            .parent = null,
-            .public = .{ .state = .unused },
-            .private = .{
-                .kstack = vm.kStackVAddr(proc_num),
-            },
-        };
-    }
+// TODO: sched
+pub fn sched() void {}
+
+pub fn myProc() ?*Process {
+    riscv.pushIntrOff();
+    defer riscv.popIntrOff();
+
+    const cpu = myCpu();
+    return cpu.proc;
 }
 
 /// Return this CPU's cpu struct.

@@ -53,6 +53,9 @@ pub const ReadCSR = enum {
     mie,
     sie,
     time,
+    sepc,
+    scause,
+    stval,
 };
 
 /// Read from the given control status register.
@@ -74,6 +77,8 @@ pub const WriteCSR = enum {
     satp,
     mie,
     sie,
+    sepc,
+    stvec,
     pmpaddr0,
     pmpcfg0,
     stimecmp,

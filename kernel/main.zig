@@ -5,8 +5,8 @@ const std = @import("std");
 
 const fmt = @import("fmt.zig");
 const heap = @import("heap.zig");
-const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
+const trap = @import("trap.zig");
 const uart = @import("uart.zig");
 const vm = @import("vm.zig");
 
@@ -49,8 +49,8 @@ pub fn kmain() noreturn {
         // turn on paging
         vm.initHart();
 
-        // process table
-        proc.init();
+        // install kernel trap vector
+        trap.initHart();
 
         started.store(true, .release);
     } else {
@@ -62,6 +62,9 @@ pub fn kmain() noreturn {
 
         // turn on paging
         vm.initHart();
+
+        // install kernel trap vector
+        trap.initHart();
     }
 
     while (true) {}
