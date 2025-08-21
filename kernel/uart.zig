@@ -3,6 +3,7 @@
 const std = @import("std");
 
 const memlayout = @import("memlayout.zig");
+const riscv = @import("riscv.zig");
 const SpinLock = @import("sync/SpinLock.zig");
 
 /// Enable receive holding register interrupt
@@ -62,6 +63,9 @@ pub fn getChar() ?u8 {
 /// use by fmt.print() and to echo characters.
 /// It spins waiting for the uart's output register to be empty.
 fn putCharSync(ch: u8) void {
+    riscv.pushIntrOff();
+    defer riscv.popIntrOff();
+
     while ((readReg(.lsr) & LSR_TX_IDLE) == 0) {}
     writeReg(.thr, ch);
 }

@@ -1,4 +1,4 @@
-//! Processes.
+//! Processes and CPU state.
 
 const std = @import("std");
 const atomic = std.atomic;
@@ -6,9 +6,21 @@ const atomic = std.atomic;
 const params = @import("params.zig");
 const SpinLock = @import("sync/SpinLock.zig");
 const vm = @import("vm.zig");
+const riscv = @import("riscv.zig");
 
+var cpus: [params.MAX_CPUS]Cpu = undefined;
 var procs: [params.MAX_PROCS]Process = undefined;
 var next_pid: atomic.Value(u32) = .init(1);
+
+/// Per-CPU state.
+const Cpu = struct {
+    /// The process running on this cpu, or null.
+    proc: ?*Process,
+    /// Depth of pushIntrOff() nesting.
+    num_off: u32,
+    /// Were interrupts enabled before pushIntrOff()?
+    interrupts_enabled: bool,
+};
 
 /// Per-process state.
 const Process = struct {
@@ -40,4 +52,11 @@ pub fn init() void {
             },
         };
     }
+}
+
+/// Return this CPU's cpu struct.
+/// Interrupts must be disabled.
+pub fn myCpu() *Cpu {
+    const cpuId = riscv.cpuId();
+    return &cpus[cpuId];
 }
