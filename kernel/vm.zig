@@ -118,7 +118,7 @@ pub fn initHart() void {
 
 /// Returns the virtual address for the given processes' kernel stack, leaving an extra
 /// guard page to detect stack overflow.
-fn kStackVAddr(proc_num: usize) usize {
+pub fn kStackVAddr(proc_num: usize) usize {
     return memlayout.TRAMPOLINE - (proc_num + 1) * 2 * riscv.PAGE_SIZE;
 }
 

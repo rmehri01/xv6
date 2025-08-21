@@ -5,6 +5,7 @@ const std = @import("std");
 
 const fmt = @import("fmt.zig");
 const heap = @import("heap.zig");
+const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
 const uart = @import("uart.zig");
 const vm = @import("vm.zig");
@@ -47,6 +48,9 @@ pub fn kmain() noreturn {
         vm.init(heap.page_allocator) catch @panic("failed to initialize virtual memory");
         // turn on paging
         vm.initHart();
+
+        // process table
+        proc.init();
 
         started.store(true, .release);
     } else {
