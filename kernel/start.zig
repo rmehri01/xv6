@@ -7,7 +7,7 @@ const riscv = @import("riscv.zig");
 pub const panic = main.panic;
 
 /// entry.S needs one stack per CPU.
-export const stack0: [params.STACK_SIZE * params.NCPU]u8 align(16) = undefined;
+export const stack0: [params.STACK_SIZE * params.MAX_CPUS]u8 align(16) = undefined;
 
 /// entry.S jumps here in machine mode on stack0.
 export fn start() noreturn {
@@ -18,7 +18,6 @@ export fn start() noreturn {
     riscv.csrw(.mstatus, mstatus);
 
     // set M Exception Program Counter to kmain, for mret.
-    // requires gcc -mcmodel=medany
     riscv.csrw(.mepc, @intFromPtr(&main.kmain));
 
     // disable paging for now.

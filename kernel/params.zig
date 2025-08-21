@@ -1,7 +1,10 @@
 //! Constant parameters that are used in various places throughout the kernel.
 
 /// Maximum number of CPUs
-pub const NCPU = 8;
+pub const MAX_CPUS = 8;
+
+/// maximum number of processes
+pub const MAX_PROCS = 64;
 
 /// Size of stack per cpu
 pub const STACK_SIZE = 4096;

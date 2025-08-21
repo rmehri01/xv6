@@ -1,0 +1,275 @@
+//! Virtual memory and page tables.
+
+const std = @import("std");
+const atomic = std.atomic;
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+
+const fmt = @import("fmt.zig");
+const memlayout = @import("memlayout.zig");
+const params = @import("params.zig");
+const riscv = @import("riscv.zig");
+const trampoline = @import("trampoline.zig");
+
+/// kernel.ld sets this to end of kernel code.
+extern const etext: opaque {};
+
+/// Number of page table entries.
+const PTES = riscv.PAGE_SIZE / @sizeOf(PageTableEntry);
+comptime {
+    assert(PTES == 512);
+}
+
+/// The kernel's page table.
+var kernel_pagetable: PageTable(.kernel) = undefined;
+
+/// Initialize the direct-map kernel_pagetable, shared by all CPUs.
+pub fn init(allocator: Allocator) !void {
+    const entries = try allocator.create([PTES]PageTableEntry);
+    @memset(entries, .{});
+
+    const init_pt: PageTable(.kernel) = .{ .entries = entries };
+
+    // uart registers
+    try init_pt.kmap(
+        allocator,
+        memlayout.UART0,
+        memlayout.UART0,
+        riscv.PAGE_SIZE,
+        .{ .readable = true, .writable = true },
+    );
+
+    // virtio mmio disk interface
+    try init_pt.kmap(
+        allocator,
+        memlayout.VIRTIO0,
+        memlayout.VIRTIO0,
+        riscv.PAGE_SIZE,
+        .{ .readable = true, .writable = true },
+    );
+
+    // PLIC
+    try init_pt.kmap(
+        allocator,
+        memlayout.PLIC,
+        memlayout.PLIC,
+        0x4000000,
+        .{ .readable = true, .writable = true },
+    );
+
+    // map kernel text executable and read-only.
+    const etext_addr = @intFromPtr(&etext);
+    try init_pt.kmap(
+        allocator,
+        memlayout.KERN_BASE,
+        memlayout.KERN_BASE,
+        etext_addr - memlayout.KERN_BASE,
+        .{ .readable = true, .executable = true },
+    );
+
+    // map kernel data and the physical RAM we'll make use of.
+    try init_pt.kmap(
+        allocator,
+        etext_addr,
+        etext_addr,
+        memlayout.PHYS_STOP - etext_addr,
+        .{ .readable = true, .writable = true },
+    );
+
+    // map the trampoline for trap entry/exit to
+    // the highest virtual address in the kernel.
+    try init_pt.kmap(
+        allocator,
+        memlayout.TRAMPOLINE,
+        @intFromPtr(&trampoline.userVec),
+        riscv.PAGE_SIZE,
+        .{ .readable = true, .executable = true },
+    );
+
+    // allocate and map a kernel stack for each process.
+    for (0..params.MAX_PROCS) |proc_num| {
+        // Allocate a page for each process's kernel stack.
+        // Map it high in memory, followed by an invalid
+        // guard page.
+        const pa = try allocator.alloc(u8, riscv.PAGE_SIZE);
+        const va = kStackVAddr(proc_num);
+        try init_pt.kmap(
+            allocator,
+            va,
+            @intFromPtr(pa.ptr),
+            riscv.PAGE_SIZE,
+            .{
+                .readable = true,
+                .writable = true,
+            },
+        );
+    }
+
+    kernel_pagetable = init_pt;
+}
+
+/// Switch the current CPU's h/w page table register to
+/// the kernel's page table, and enable paging.
+pub fn initHart() void {
+    riscv.sfenceVma();
+    riscv.csrw(.satp, kernel_pagetable.makeSatp());
+    riscv.sfenceVma();
+}
+
+/// Returns the virtual address for the given processes' kernel stack, leaving an extra
+/// guard page to detect stack overflow.
+fn kStackVAddr(proc_num: usize) usize {
+    return memlayout.TRAMPOLINE - (proc_num + 1) * 2 * riscv.PAGE_SIZE;
+}
+
+/// Page tables have different operations depending if they are for the kernel or for users.
+const PageTableKind = enum { kernel, user };
+
+/// A way for the OS to provide each process with it's own private address space.
+fn PageTable(kind: PageTableKind) type {
+    return struct {
+        entries: *[PTES]PageTableEntry,
+
+        /// Add a mapping to the kernel page table, only used when booting.
+        /// Does not flush TLB or enable paging.
+        fn kmap(self: @This(), allocator: Allocator, va: u64, pa: u64, sz: u64, perms: PtePerms) !void {
+            comptime assert(kind == .kernel);
+            try self.mapPages(allocator, va, pa, sz, perms);
+        }
+
+        /// Create PTEs for virtual addresses starting at va that refer to
+        /// physical addresses starting at pa.
+        /// va and size MUST be page-aligned.
+        /// Returns an error if walk() couldn't allocate a needed page-table page.
+        fn mapPages(self: @This(), allocator: ?Allocator, va: u64, pa: u64, sz: u64, perms: PtePerms) !void {
+            assert(va % riscv.PAGE_SIZE == 0);
+            assert(sz % riscv.PAGE_SIZE == 0);
+            assert(sz != 0);
+
+            var vaddr = va;
+            var paddr = pa;
+            const last = va + sz - riscv.PAGE_SIZE;
+            while (vaddr <= last) : ({
+                vaddr += riscv.PAGE_SIZE;
+                paddr += riscv.PAGE_SIZE;
+            }) {
+                const pte = try self.walk(allocator, vaddr);
+                assert(!pte.perms.valid);
+
+                pte.* = PageTableEntry.fromPhysAddr(paddr);
+                pte.perms = perms;
+                pte.perms.valid = true;
+            }
+        }
+
+        /// Return the address of the PTE in page table that corresponds to
+        /// virtual address va. If an allocator is provided, create any
+        /// required page-table pages.
+        ///
+        /// The risc-v Sv39 scheme has three levels of page-table
+        /// pages. A page-table page contains 512 64-bit PTEs.
+        /// A 64-bit virtual address is split into five fields:
+        ///   39..63 -- must be zero.
+        ///   30..38 -- 9 bits of level-2 index.
+        ///   21..29 -- 9 bits of level-1 index.
+        ///   12..20 -- 9 bits of level-0 index.
+        ///    0..11 -- 12 bits of byte offset within the page.
+        fn walk(self: @This(), allocator: ?Allocator, va: u64) !*PageTableEntry {
+            assert(va < riscv.MAX_VA);
+
+            var pt = self;
+            var level: u2 = 2;
+            while (level > 0) : (level -= 1) {
+                const pte = &pt.entries[virtAddrIdxAtLevel(va, level)];
+                if (pte.perms.valid) {
+                    pt = .{ .entries = @ptrFromInt(pte.toPhysAddr()) };
+                } else {
+                    if (allocator) |alloc| {
+                        const entries = try alloc.create([PTES]PageTableEntry);
+                        @memset(entries, .{});
+
+                        pte.* = PageTableEntry.fromPhysAddr(@intFromPtr(entries));
+                        pte.perms.valid = true;
+
+                        pt = .{ .entries = entries };
+                    } else {
+                        return error.PteNotFound;
+                    }
+                }
+            }
+
+            return &pt.entries[virtAddrIdxAtLevel(va, 0)];
+        }
+
+        /// Format the page table for writing to the SATP register.
+        fn makeSatp(self: @This()) u64 {
+            return riscv.SATP_SV39 | (@intFromPtr(self.entries) >> PAGE_SHIFT);
+        }
+
+        /// Prints the page table for debugging purposes.
+        fn debugPrint(self: @This()) void {
+            fmt.println("page table {*}", .{self.entries});
+            self.debugPrintLevel(0, 2);
+        }
+        fn debugPrintLevel(self: @This(), va: u64, comptime level: u2) void {
+            var vaddr = va;
+            for (self.entries) |pte| {
+                if (pte.perms.valid) {
+                    fmt.println(
+                        "  " ** (2 - level) ++ "0x{x:0>16}: pte {{ .pa = 0x{x:0>16}, .perms = 0b{b:0>8} }}",
+                        .{ vaddr, pte.ppn, @as(u8, @bitCast(pte.perms)) },
+                    );
+                    if (level != 0) {
+                        const next: @This() = .{ .entries = @ptrFromInt(pte.toPhysAddr()) };
+                        next.debugPrintLevel(vaddr, level - 1);
+                    }
+                }
+                vaddr += 1 << (@as(u6, level) * 9 + PAGE_SHIFT);
+            }
+        }
+    };
+}
+
+/// A single entry in the page table that points to the next level and has permissions
+/// for how it can be used.
+const PageTableEntry = packed struct(u64) {
+    /// Permissions.
+    perms: PtePerms = .{},
+    /// Reserved for supervisor software.
+    rsw: u2 = 0,
+    /// Physical Page Number.
+    ppn: u44 = 0,
+    reserved: u10 = 0,
+
+    /// Produces a PTE with a ppn from the given physical address.
+    fn fromPhysAddr(pa: u64) @This() {
+        return .{ .ppn = @intCast(pa >> PAGE_SHIFT) };
+    }
+
+    /// Produces the physical address associated with this PTE's ppn.
+    fn toPhysAddr(self: PageTableEntry) u64 {
+        return @as(u64, self.ppn) << PAGE_SHIFT;
+    }
+};
+
+/// Permissions for page table entries.
+pub const PtePerms = packed struct(u8) {
+    valid: bool = false,
+    readable: bool = false,
+    writable: bool = false,
+    executable: bool = false,
+    user: bool = false,
+    global: bool = false,
+    accessed: bool = false,
+    dirty: bool = false,
+};
+
+/// 9 bits.
+const VA_LEVEL_MASK = 0x1FF;
+/// Bits of offset within a page.
+const PAGE_SHIFT = 12;
+
+/// Extract the three 9-bit page table indices from a virtual address.
+fn virtAddrIdxAtLevel(va: u64, level: u2) u9 {
+    return @intCast((va >> (PAGE_SHIFT + 9 * @as(u6, level))) & VA_LEVEL_MASK);
+}

@@ -25,6 +25,9 @@ pub const SIE_STIE = 1 << 5;
 /// Supervisor Timer
 pub const MIE_STIE = 1 << 5;
 
+/// use riscv's sv39 page table scheme.
+pub const SATP_SV39 = 8 << 60;
+
 /// Control status registers that are readable.
 pub const ReadCSR = enum {
     mstatus,
@@ -86,4 +89,16 @@ pub fn write(comptime reg: enum { tp }, val: u64) void {
 /// to prevent race with process being moved to a different CPU.
 pub fn cpuId() u8 {
     return @intCast(read(.tp));
+}
+
+/// One beyond the highest possible virtual address.
+/// MAX_VA is actually one bit less than the max allowed by
+/// Sv39, to avoid having to sign-extend virtual addresses
+/// that have the high bit set.
+pub const MAX_VA = 1 << (9 + 9 + 9 + 12 - 1);
+
+/// Flush the TLB.
+pub fn sfenceVma() void {
+    // zero, zero flushes all TLB entries
+    asm volatile ("sfence.vma zero, zero");
 }

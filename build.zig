@@ -22,7 +22,6 @@ pub fn build(b: *std.Build) !void {
 
     kernel.setLinkerScript(b.path("kernel/kernel.ld"));
     kernel.addAssemblyFile(b.path("kernel/entry.S"));
-    kernel.addAssemblyFile(b.path("kernel/trampoline.S"));
 
     b.installArtifact(kernel);
 

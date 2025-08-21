@@ -10,7 +10,7 @@ const SpinLock = @import("sync/SpinLock.zig");
 
 /// First address after kernel.
 /// Defined by kernel.ld.
-const end = @extern([*]u8, .{ .name = "end" });
+extern const end: opaque {};
 
 /// Physical memory allocator, for user processes, kernel stacks, page-table pages,
 /// and pipe buffers. Allocates whole 4096-byte pages.
@@ -30,7 +30,7 @@ const PageAllocator = struct {
     /// Initialize with all available physical memory.
     fn init() PageAllocator {
         var pg_alloc: PageAllocator = .{};
-        pg_alloc.freeRange(@intFromPtr(end), memlayout.PHYS_STOP);
+        pg_alloc.freeRange(@intFromPtr(&end), memlayout.PHYS_STOP);
         return pg_alloc;
     }
 
@@ -101,7 +101,7 @@ fn free(
 
     const addr = @intFromPtr(buf.ptr);
     assert(addr % riscv.PAGE_SIZE == 0);
-    assert(addr >= @intFromPtr(end));
+    assert(addr >= @intFromPtr(&end));
     assert(addr < memlayout.PHYS_STOP);
     assert(buf.len == riscv.PAGE_SIZE);
 
@@ -143,6 +143,7 @@ fn remap(
         null;
 }
 
+/// Rounds up addr to the closest page size.
 fn pageRoundUp(addr: usize) usize {
     return (addr + riscv.PAGE_SIZE - 1) & ~@as(usize, (riscv.PAGE_SIZE - 1));
 }

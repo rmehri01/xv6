@@ -7,6 +7,7 @@ const fmt = @import("fmt.zig");
 const heap = @import("heap.zig");
 const riscv = @import("riscv.zig");
 const uart = @import("uart.zig");
+const vm = @import("vm.zig");
 
 pub const panic = std.debug.FullPanic(panicImpl);
 
@@ -37,14 +38,26 @@ pub fn kmain() noreturn {
     const cpu_id = riscv.cpuId();
     if (cpu_id == 0) {
         uart.init();
-        heap.init();
         fmt.println("xv6 kernel is booting", .{});
+
+        // physical page allocator
+        heap.init();
+
+        // create kernel page table
+        vm.init(heap.page_allocator) catch @panic("failed to initialize virtual memory");
+        // turn on paging
+        vm.initHart();
+
         started.store(true, .release);
     } else {
         while (!started.load(.acquire)) {
             std.atomic.spinLoopHint();
         }
+
         fmt.println("hart {d}: starting", .{cpu_id});
+
+        // turn on paging
+        vm.initHart();
     }
 
     while (true) {}
