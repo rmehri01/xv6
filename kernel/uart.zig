@@ -50,6 +50,13 @@ pub fn init() void {
     writeReg(.ier, IER_TX_ENABLE | IER_RX_ENABLE);
 }
 
+/// Handle a UART interrupt, raised because input has
+/// arrived, or the uart is ready for more output, or
+/// both. called from handleDevIntr().
+pub fn handleIntr() void {
+    // TODO: uart interrupt
+}
+
 /// Try to read one input character from the UART, returning null if none is waiting.
 pub fn getChar() ?u8 {
     if (readReg(.lsr) & LSR_RX_READY == 1) {

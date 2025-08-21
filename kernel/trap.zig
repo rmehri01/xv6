@@ -6,6 +6,8 @@ const atomic = std.atomic;
 const assert = std.debug.assert;
 
 const params = @import("params.zig");
+const plic = @import("plic.zig");
+const uart = @import("uart.zig");
 const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
 
@@ -118,7 +120,23 @@ fn handleDevIntr() enum { unknown, other, timer } {
     return switch (scause) {
         0x8000000000000009 => {
             // this is a supervisor external interrupt, via PLIC.
-            // TODO: plic
+
+            // irq indicates which device interrupted.
+            const irq = plic.claim();
+            if (irq) |dev| {
+                switch (dev) {
+                    .uart => uart.handleIntr(),
+                    .virtio => {
+                        // TODO: virtio
+                    },
+                }
+
+                // the PLIC allows each device to raise at most one
+                // interrupt at a time; tell the PLIC the device is
+                // now allowed to interrupt again.
+                plic.complete(dev);
+            }
+
             return .other;
         },
         0x8000000000000005 => {

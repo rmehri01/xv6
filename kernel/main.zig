@@ -9,6 +9,7 @@ const riscv = @import("riscv.zig");
 const trap = @import("trap.zig");
 const uart = @import("uart.zig");
 const vm = @import("vm.zig");
+const plic = @import("plic.zig");
 
 pub const panic = std.debug.FullPanic(panicImpl);
 
@@ -48,9 +49,12 @@ pub fn kmain() noreturn {
         vm.init(heap.page_allocator) catch @panic("failed to initialize virtual memory");
         // turn on paging
         vm.initHart();
-
         // install kernel trap vector
         trap.initHart();
+        // set up interrupt controller
+        plic.init();
+        // ask PLIC for device interrupts
+        plic.initHart();
 
         started.store(true, .release);
     } else {
@@ -62,9 +66,10 @@ pub fn kmain() noreturn {
 
         // turn on paging
         vm.initHart();
-
         // install kernel trap vector
         trap.initHart();
+        // ask PLIC for device interrupts
+        plic.initHart();
     }
 
     while (true) {}
