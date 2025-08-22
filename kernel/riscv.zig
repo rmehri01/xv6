@@ -45,16 +45,29 @@ pub const SATP_SV39 = 8 << 60;
 
 /// Control status registers that are readable.
 pub const ReadCSR = enum {
+    /// Machine Status Register.
     mstatus,
+    /// Supervisor Status Register.
     sstatus,
+    /// Which hart (core) is this?
     mhartid,
+    // Machine Environment Configuration Register.
     menvcfg,
+    /// Machine-mode Counter-Enable.
     mcounteren,
+    /// Machine-mode Interrupt Enable.
     mie,
+    /// Supervisor Interrupt Enable.
     sie,
+    /// Machine-mode cycle counter.
     time,
+    /// Supervisor exception program counter, holds the
+    /// instruction address to which a return from
+    /// exception will go.
     sepc,
+    /// Supervisor Trap Cause.
     scause,
+    /// Supervisor Trap Value.
     stval,
 };
 
@@ -67,20 +80,39 @@ pub fn csrr(comptime reg: ReadCSR) u64 {
 
 /// Control status registers that are writable.
 pub const WriteCSR = enum {
+    /// Machine Status Register.
     mstatus,
+    /// Supervisor Status Register.
     sstatus,
+    /// Machine exception program counter, holds the
+    /// instruction address to which a return from
+    /// exception will go.
     mepc,
+    /// Machine Exception Delegation.
     medeleg,
+    /// Machine Interrupt Delegation.
     mideleg,
+    /// Machine Environment Configuration Register.
     menvcfg,
+    /// Machine-mode Counter-Enable.
     mcounteren,
+    /// Supervisor address translation and protection;
+    /// holds the address of the page table.
     satp,
+    /// Machine-mode Interrupt Enable.
     mie,
+    /// Supervisor Interrupt Enable.
     sie,
+    /// Supervisor exception program counter, holds the
+    /// instruction address to which a return from
+    /// exception will go.
     sepc,
+    /// Supervisor Trap-Vector Base Address.
     stvec,
     pmpaddr0,
+    /// Physical Memory Protection.
     pmpcfg0,
+    /// Supervisor Timer Comparison Register.
     stimecmp,
 };
 
