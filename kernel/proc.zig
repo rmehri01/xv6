@@ -1,7 +1,6 @@
 //! Processes and CPU state.
 
 const std = @import("std");
-const atomic = std.atomic;
 
 const params = @import("params.zig");
 const SpinLock = @import("sync/SpinLock.zig");
@@ -9,26 +8,32 @@ const vm = @import("vm.zig");
 const riscv = @import("riscv.zig");
 
 var cpus: [params.MAX_CPUS]Cpu = undefined;
-var procs: [params.MAX_PROCS]Process = value: {
+var procs: [params.MAX_PROCS]Process = init: {
     var init_procs: [params.MAX_PROCS]Process = undefined;
 
     for (0.., &init_procs) |proc_num, *proc| {
         proc.* = .{
             .mutex = .{},
             .parent = null,
-            .public = .{ .state = .unused },
+            .public = .{
+                .state = .unused,
+                .pid = null,
+            },
             .private = .{
                 .kstack = vm.kStackVAddr(proc_num),
             },
         };
     }
 
-    break :value init_procs;
+    break :init init_procs;
 };
-var next_pid: atomic.Value(u32) = .init(1);
+
+/// Process ID.
+pub const Pid = u32;
+var next_pid: std.atomic.Value(Pid) = .init(1);
 
 /// Per-CPU state.
-const Cpu = struct {
+pub const Cpu = struct {
     /// The process running on this cpu, or null.
     proc: ?*Process,
     /// Depth of pushIntrOff() nesting.
@@ -46,6 +51,8 @@ const Process = struct {
     /// Process mutex must be held while using these.
     public: struct {
         state: ProcessState,
+        /// Process ID.
+        pid: ?Pid,
     },
     private: struct {
         /// Virtual address of kernel stack.
@@ -63,7 +70,17 @@ const Process = struct {
 };
 
 /// The possible states a process can be in.
-const ProcessState = enum { unused, used, sleeping, runnable, running, zombie };
+const ProcessState = union(enum) {
+    unused,
+    used,
+    sleeping: struct {
+        /// Channel that this process is sleeping on.
+        chan: usize,
+    },
+    runnable,
+    running,
+    zombie,
+};
 
 // TODO: sched
 pub fn sched() void {}
@@ -81,4 +98,47 @@ pub fn myProc() ?*Process {
 pub fn myCpu() *Cpu {
     const cpuId = riscv.cpuId();
     return &cpus[cpuId];
+}
+
+/// Sleep on channel chan, releasing condition lock `mutex`.
+/// Re-acquires `mutex` when awakened.
+pub fn sleep(chan: usize, mutex: *SpinLock) void {
+    const p = myProc().?;
+
+    // Must acquire p.mutex in order to
+    // change p.public.state and then call sched.
+    // Once we hold p.mutex, we can be
+    // guaranteed that we won't miss any wakeup
+    // (wakeup locks p.mutex),
+    // so it's okay to release mutex.
+    p.mutex.lock();
+    mutex.unlock();
+
+    // Go to sleep.
+    p.public.state = .{ .sleeping = .{ .chan = chan } };
+    sched();
+
+    // TODO: defer?
+    // Reacquire original lock.
+    p.mutex.unlock();
+    mutex.lock();
+}
+
+/// Wake up all processes sleeping on channel chan.
+/// Caller should hold the condition lock.
+pub fn wakeUp(chan: usize) void {
+    const currentProc = myProc().?;
+    for (&procs) |*proc| {
+        if (proc != currentProc) {
+            proc.mutex.lock();
+            defer proc.mutex.unlock();
+
+            const state = proc.public.state;
+            if (state == .sleeping and
+                state.sleeping.chan == chan)
+            {
+                proc.public.state = .runnable;
+            }
+        }
+    }
 }

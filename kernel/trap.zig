@@ -2,7 +2,6 @@
 //! syscalls, exceptions, and interrupts.
 
 const std = @import("std");
-const atomic = std.atomic;
 const assert = std.debug.assert;
 
 const params = @import("params.zig");
@@ -10,8 +9,9 @@ const plic = @import("plic.zig");
 const uart = @import("uart.zig");
 const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
+const virtio = @import("fs/virtio.zig");
 
-var ticks: atomic.Value(u32) = .init(0);
+var ticks: std.atomic.Value(usize) = .init(0);
 
 /// Set up to take exceptions and traps while in the kernel.
 pub fn initHart() void {
@@ -126,9 +126,7 @@ fn handleDevIntr() enum { unknown, other, timer } {
             if (irq) |dev| {
                 switch (dev) {
                     .uart => uart.handleIntr(),
-                    .virtio => {
-                        // TODO: virtio
-                    },
+                    .virtio => virtio.handleIntr(),
                 }
 
                 // the PLIC allows each device to raise at most one
@@ -152,7 +150,7 @@ fn handleDevIntr() enum { unknown, other, timer } {
 fn handleClockIntr() void {
     if (riscv.cpuId() == 0) {
         _ = ticks.fetchAdd(1, .acq_rel);
-        // TODO: wakeup
+        proc.wakeUp(@intFromPtr(&ticks));
     }
 
     const time = riscv.csrr(.time);

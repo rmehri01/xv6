@@ -10,6 +10,7 @@ const trap = @import("trap.zig");
 const uart = @import("uart.zig");
 const vm = @import("vm.zig");
 const plic = @import("plic.zig");
+const virtio = @import("fs/virtio.zig");
 
 pub const panic = std.debug.FullPanic(panicImpl);
 
@@ -46,7 +47,8 @@ pub fn kmain() noreturn {
         heap.init();
 
         // create kernel page table
-        vm.init(heap.page_allocator) catch @panic("failed to initialize virtual memory");
+        vm.init(heap.page_allocator) catch |err|
+            std.debug.panic("failed to initialize virtual memory: {}", .{err});
         // turn on paging
         vm.initHart();
         // install kernel trap vector
@@ -55,6 +57,10 @@ pub fn kmain() noreturn {
         plic.init();
         // ask PLIC for device interrupts
         plic.initHart();
+
+        // emulated hard disk
+        virtio.init(heap.page_allocator) catch |err|
+            std.debug.panic("failed to initialize virtio: {}", .{err});
 
         started.store(true, .release);
     } else {
