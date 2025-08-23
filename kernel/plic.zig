@@ -26,14 +26,14 @@ pub fn init() void {
 }
 
 pub fn initHart() void {
-    const cpuId = riscv.cpuId();
+    const cpu_id = riscv.cpuId();
 
     // set enable bits for this hart's S-mode
     // for the uart and virtio disk.
-    sEnable(cpuId).* = (1 << Irq.uart.val()) | (1 << Irq.virtio.val());
+    sEnable(cpu_id).* = (1 << Irq.uart.val()) | (1 << Irq.virtio.val());
 
     // set this hart's S-mode priority threshold to 0.
-    sPriority(cpuId).* = 0;
+    sPriority(cpu_id).* = 0;
 }
 
 /// Ask the PLIC what interrupt we should serve.
@@ -48,18 +48,18 @@ pub fn claim() ?Irq {
 
 /// Tell the PLIC we've served this IRQ.
 pub fn complete(irq: Irq) void {
-    const cpuId = riscv.cpuId();
-    sClaim(cpuId).* = irq.val();
+    const cpu_id = riscv.cpuId();
+    sClaim(cpu_id).* = irq.val();
 }
 
-fn sEnable(cpuId: u8) *u32 {
-    return &plic[(0x2080 + @as(usize, cpuId) * 0x100) / @sizeOf(u32)];
+fn sEnable(cpu_id: u8) *u32 {
+    return &plic[(0x2080 + @as(usize, cpu_id) * 0x100) / @sizeOf(u32)];
 }
 
-fn sPriority(cpuId: u8) *u32 {
-    return &plic[(0x201000 + @as(usize, cpuId) * 0x2000) / @sizeOf(u32)];
+fn sPriority(cpu_id: u8) *u32 {
+    return &plic[(0x201000 + @as(usize, cpu_id) * 0x2000) / @sizeOf(u32)];
 }
 
-fn sClaim(cpuId: u8) *u32 {
-    return &plic[(0x201004 + @as(usize, cpuId) * 0x2000) / @sizeOf(u32)];
+fn sClaim(cpu_id: u8) *u32 {
+    return &plic[(0x201004 + @as(usize, cpu_id) * 0x2000) / @sizeOf(u32)];
 }
