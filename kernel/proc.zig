@@ -26,6 +26,7 @@ var procs: [params.MAX_PROCS]Process = init: {
             },
             .private = .{
                 .kstack = vm.kStackVAddr(proc_num),
+                .size = 0,
                 .trapFrame = null,
                 .pageTable = null,
                 .context = null,
@@ -69,6 +70,8 @@ const Process = struct {
     private: struct {
         /// Virtual address of kernel stack.
         kstack: u64,
+        /// Size of process memory (bytes)
+        size: u64,
         /// Data page for trampoline.zig
         trapFrame: ?*TrapFrame,
         /// User page table.
@@ -132,17 +135,24 @@ const Process = struct {
             allocator.destroy(trapFrame);
         }
         if (self.private.pageTable) |pageTable| {
-            // TODO: free
-            _ = pageTable;
+            Process.freePageTable(allocator, pageTable, self.private.size);
         }
 
         // TODO: others
         self.parent = null;
         self.public.state = .unused;
         self.public.pid = null;
+        self.private.size = 0;
         self.private.trapFrame = null;
         self.private.pageTable = null;
         self.private.context = null;
+    }
+
+    /// Free a process's page table, and free the physical memory it refers to.
+    fn freePageTable(allocator: Allocator, pageTable: vm.PageTable(.user), size: u64) void {
+        pageTable.unmap(null, memlayout.TRAMPOLINE, 1);
+        pageTable.unmap(null, memlayout.TRAP_FRAME, 1);
+        pageTable.free(allocator, size);
     }
 };
 
@@ -380,23 +390,21 @@ pub fn myCpu() *Cpu {
 pub fn sleep(chan: usize, mutex: *SpinLock) void {
     const p = myProc().?;
 
-    // Must acquire p.mutex in order to
-    // change p.public.state and then call switchToScheduler().
-    // Once we hold p.mutex, we can be
-    // guaranteed that we won't miss any wakeup
-    // (wakeup locks p.mutex),
-    // so it's okay to release mutex.
+    // Must acquire p.mutex in order to change p.public.state and then
+    // call switchToScheduler(). Once we hold p.mutex, we can be guaranteed
+    // that we won't miss any wakeup (wakeup locks p.mutex), so it's okay
+    // to release mutex.
     p.mutex.lock();
     mutex.unlock();
+    defer {
+        // Reacquire original lock.
+        p.mutex.unlock();
+        mutex.lock();
+    }
 
     // Go to sleep.
     p.public.state = .{ .sleeping = .{ .chan = chan } };
     switchToScheduler();
-
-    // TODO: defer?
-    // Reacquire original lock.
-    p.mutex.unlock();
-    mutex.lock();
 }
 
 /// Wake up all processes sleeping on channel chan.

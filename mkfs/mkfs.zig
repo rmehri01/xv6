@@ -193,7 +193,7 @@ fn appendToInode(inum: u16, bytes: []const u8) !void {
     var inode = try readInode(inum);
     var p = bytes;
     var off = inode.size;
-    log.debug("append inum {d} at off {x} sz {d}", .{ inum, off, p.len });
+    log.debug("append inum {d} at off {x} size {d}", .{ inum, off, p.len });
 
     while (p.len > 0) {
         const block_num = off / fsdefs.BLOCK_SIZE;

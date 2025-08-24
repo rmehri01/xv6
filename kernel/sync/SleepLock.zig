@@ -16,15 +16,14 @@ pid: ?proc.Pid = null,
 /// Acquire the lock. Sleeps until the lock is acquired.
 pub fn lock(self: *SleepLock) void {
     self.mutex.lock();
+    defer self.mutex.unlock();
+
     while (self.locked) {
         proc.sleep(@intFromPtr(self), &self.mutex);
     }
 
     self.locked = true;
     self.pid = proc.myProc().?.public.pid.?;
-
-    // TODO: defer?
-    self.mutex.unlock();
 }
 
 /// Release the lock. Wakes up anyone else waiting for it.

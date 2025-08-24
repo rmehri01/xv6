@@ -137,11 +137,11 @@ pub fn PageTable(kind: PageTableKind) type {
             allocator: Allocator,
             va: u64,
             pa: u64,
-            sz: u64,
+            size: u64,
             perms: PtePerms,
         ) !void {
             comptime assert(kind == .kernel);
-            try self.mapPages(allocator, va, pa, sz, perms);
+            try self.mapPages(allocator, va, pa, size, perms);
         }
 
         /// Create an empty user page table.
@@ -155,11 +155,11 @@ pub fn PageTable(kind: PageTableKind) type {
         }
 
         /// Free user memory pages, then free page-table pages.
-        pub fn free(self: @This(), allocator: Allocator, sz: usize) void {
+        pub fn free(self: @This(), allocator: Allocator, size: usize) void {
             comptime assert(kind == .user);
 
-            if (sz > 0)
-                self.unmap(allocator, 0, riscv.pageRoundUp(sz) / riscv.PAGE_SIZE);
+            if (size > 0)
+                self.unmap(allocator, 0, riscv.pageRoundUp(size) / riscv.PAGE_SIZE);
             self.freeWalk(allocator);
         }
 
@@ -215,16 +215,16 @@ pub fn PageTable(kind: PageTableKind) type {
             allocator: ?Allocator,
             va: u64,
             pa: u64,
-            sz: u64,
+            size: u64,
             perms: PtePerms,
         ) !void {
             assert(va % riscv.PAGE_SIZE == 0);
-            assert(sz % riscv.PAGE_SIZE == 0);
-            assert(sz != 0);
+            assert(size % riscv.PAGE_SIZE == 0);
+            assert(size != 0);
 
             var vaddr = va;
             var paddr = pa;
-            const last = va + sz - riscv.PAGE_SIZE;
+            const last = va + size - riscv.PAGE_SIZE;
             while (vaddr <= last) : ({
                 vaddr += riscv.PAGE_SIZE;
                 paddr += riscv.PAGE_SIZE;
