@@ -14,12 +14,14 @@
 //!     so do not keep them longer than necessary.
 
 const std = @import("std");
+const assert = std.debug.assert;
 const DoublyLinkedList = std.DoublyLinkedList;
 
 const params = @import("../params.zig");
 const SleepLock = @import("../sync/SleepLock.zig");
 const SpinLock = @import("../sync/SpinLock.zig");
 const defs = @import("defs.zig");
+const virtio = @import("virtio.zig");
 
 /// Backing storage for the doubly linked `head` buffer cache.
 var bufs: [params.NUM_BUF]Buf = undefined;
@@ -28,13 +30,7 @@ var mutex: SpinLock = .{};
 /// Linked list of all buffers, through prev/next.
 /// Sorted by how recently the buffer was used.
 /// head.next is most recent, head.prev is least.
-var head: DoublyLinkedList = init: {
-    var buf_list: DoublyLinkedList = .{};
-    for (&bufs) |*buf| {
-        buf_list.append(buf.node);
-    }
-    break :init buf_list;
-};
+var head: DoublyLinkedList = .{};
 
 /// A single buffer, which is a copy of a disk block that can be
 /// read or written in memory and then flushed back to disk.
@@ -51,8 +47,81 @@ pub const Buf = struct {
     node: DoublyLinkedList.Node,
 };
 
-pub fn read() void {}
+pub fn init() void {
+    // Create linked list of buffers
+    for (&bufs) |*buf| {
+        head.append(&buf.node);
+    }
+}
 
-pub fn write() void {}
+/// Return a locked Buf with the contents of the indicated block.
+pub fn read(dev: u32, block_num: u32) *Buf {
+    const buf = get(dev, block_num);
+    if (!buf.valid) {
+        virtio.read(buf);
+        buf.valid = true;
+    }
 
-pub fn release() void {}
+    return buf;
+}
+
+/// Write buf's contents to disk. Must be locked.
+pub fn write(buf: *Buf) void {
+    assert(buf.mutex.holding());
+    virtio.write(buf);
+}
+
+/// Release a locked buffer.
+/// Move to the head of the most-recently-used list.
+pub fn release(buf: *Buf) void {
+    assert(buf.mutex.holding());
+    buf.mutex.unlock();
+
+    mutex.lock();
+    defer mutex.unlock();
+
+    buf.ref_count -= 1;
+    if (buf.ref_count == 0) {
+        // no one is waiting for it.
+        head.remove(&buf.node);
+        head.prepend(&buf.node);
+    }
+}
+
+/// Look through buffer cache for block on device dev.
+/// If not found, allocate a buffer.
+/// In either case, return locked buffer.
+fn get(dev: u32, block_num: u32) *Buf {
+    mutex.lock();
+
+    // Is the block already cached?
+    var it = head.first;
+    while (it) |node| : (it = node.next) {
+        const buf: *Buf = @fieldParentPtr("node", node);
+        if (buf.dev == dev and buf.block_num == block_num) {
+            buf.ref_count += 1;
+            mutex.unlock();
+            buf.mutex.lock();
+            return buf;
+        }
+    }
+
+    // Not cached.
+    // Recycle the least recently used (LRU) unused buffer.
+    it = head.last;
+    while (it) |node| : (it = node.prev) {
+        const buf: *Buf = @fieldParentPtr("node", node);
+        if (buf.ref_count == 0) {
+            buf.dev = dev;
+            buf.block_num = block_num;
+            buf.valid = false;
+            buf.ref_count = 1;
+
+            mutex.unlock();
+            buf.mutex.lock();
+            return buf;
+        }
+    } else {
+        @panic("bcache out of buffers!");
+    }
+}
