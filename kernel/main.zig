@@ -4,13 +4,14 @@
 const std = @import("std");
 
 const fmt = @import("fmt.zig");
+const virtio = @import("fs/virtio.zig");
 const heap = @import("heap.zig");
+const plic = @import("plic.zig");
+const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
 const trap = @import("trap.zig");
 const uart = @import("uart.zig");
 const vm = @import("vm.zig");
-const plic = @import("plic.zig");
-const virtio = @import("fs/virtio.zig");
 
 pub const panic = std.debug.FullPanic(panicImpl);
 
@@ -62,6 +63,10 @@ pub fn kmain() noreturn {
         virtio.init(heap.page_allocator) catch |err|
             std.debug.panic("failed to initialize virtio: {}", .{err});
 
+        // first user process
+        proc.userInit(heap.page_allocator) catch |err|
+            std.debug.panic("failed to initialize user process: {}", .{err});
+
         started.store(true, .release);
     } else {
         while (!started.load(.acquire)) {
@@ -78,5 +83,5 @@ pub fn kmain() noreturn {
         plic.initHart();
     }
 
-    while (true) {}
+    proc.runScheduler();
 }

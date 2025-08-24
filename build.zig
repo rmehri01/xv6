@@ -40,6 +40,7 @@ pub fn build(b: *std.Build) !void {
     });
     kernel.setLinkerScript(b.path("kernel/kernel.ld"));
     kernel.addAssemblyFile(b.path("kernel/entry.S"));
+    kernel.addAssemblyFile(b.path("kernel/ctxSwitch.S"));
     b.installArtifact(kernel);
 
     const check = b.step("check", "Check if the kernel compiles");

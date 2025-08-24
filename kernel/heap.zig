@@ -36,7 +36,7 @@ const PageAllocator = struct {
 
     /// Free a range of physical memory from `pa_start` to `pa_end`.
     fn freeRange(self: *PageAllocator, pa_start: usize, pa_end: usize) void {
-        var p = pageRoundUp(pa_start);
+        var p = riscv.pageRoundUp(pa_start);
         while (p + riscv.PAGE_SIZE <= pa_end) : (p += riscv.PAGE_SIZE) {
             free(
                 self,
@@ -141,9 +141,4 @@ fn remap(
         buf.ptr
     else
         null;
-}
-
-/// Rounds up addr to the closest page size.
-fn pageRoundUp(addr: usize) usize {
-    return (addr + riscv.PAGE_SIZE - 1) & ~@as(usize, (riscv.PAGE_SIZE - 1));
 }

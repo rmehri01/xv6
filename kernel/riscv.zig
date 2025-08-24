@@ -179,13 +179,13 @@ pub fn intrOn() void {
     csrw(.sstatus, sstatus | SSTATUS_SIE);
 }
 
-// Disable device interrupts.
+/// Disable device interrupts.
 pub fn intrOff() void {
     const sstatus = csrr(.sstatus);
     csrw(.sstatus, sstatus & ~@as(u64, SSTATUS_SIE));
 }
 
-// Are device interrupts enabled?
+/// Are device interrupts enabled?
 pub fn intrGet() bool {
     const sstatus = csrr(.sstatus);
     return (sstatus & SSTATUS_SIE) != 0;
@@ -201,4 +201,9 @@ pub const MAX_VA = 1 << (9 + 9 + 9 + 12 - 1);
 pub fn sfenceVma() void {
     // zero, zero flushes all TLB entries
     asm volatile ("sfence.vma zero, zero");
+}
+
+/// Rounds up addr to the closest page size.
+pub fn pageRoundUp(addr: usize) usize {
+    return (addr + PAGE_SIZE - 1) & ~@as(usize, (PAGE_SIZE - 1));
 }

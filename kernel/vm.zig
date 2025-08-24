@@ -126,22 +126,98 @@ pub fn kStackVAddr(proc_num: usize) usize {
 const PageTableKind = enum { kernel, user };
 
 /// A way for the OS to provide each process with it's own private address space.
-fn PageTable(kind: PageTableKind) type {
+pub fn PageTable(kind: PageTableKind) type {
     return struct {
         entries: *[PTES]PageTableEntry,
 
         /// Add a mapping to the kernel page table, only used when booting.
         /// Does not flush TLB or enable paging.
-        fn kmap(self: @This(), allocator: Allocator, va: u64, pa: u64, sz: u64, perms: PtePerms) !void {
+        fn kmap(
+            self: @This(),
+            allocator: Allocator,
+            va: u64,
+            pa: u64,
+            sz: u64,
+            perms: PtePerms,
+        ) !void {
             comptime assert(kind == .kernel);
             try self.mapPages(allocator, va, pa, sz, perms);
+        }
+
+        /// Create an empty user page table.
+        pub fn init(allocator: Allocator) !@This() {
+            comptime assert(kind == .user);
+
+            const entries = try allocator.create([PTES]PageTableEntry);
+            @memset(entries, .{});
+
+            return .{ .entries = entries };
+        }
+
+        /// Free user memory pages, then free page-table pages.
+        pub fn free(self: @This(), allocator: Allocator, sz: usize) void {
+            comptime assert(kind == .user);
+
+            if (sz > 0)
+                self.unmap(allocator, 0, riscv.pageRoundUp(sz) / riscv.PAGE_SIZE);
+            self.freeWalk(allocator);
+        }
+
+        /// Remove num_pages of mappings starting from va. va must be
+        /// page-aligned. It's OK if the mappings don't exist.
+        /// Optionally free the physical memory if an allocator is provided.
+        pub fn unmap(self: @This(), allocator: ?Allocator, va: u64, num_pages: u64) void {
+            comptime assert(kind == .user);
+            assert(va % riscv.PAGE_SIZE == 0);
+
+            var a = va;
+            while (a < va + num_pages * riscv.PAGE_SIZE) : (a += riscv.PAGE_SIZE) {
+                // leaf page table entry allocated?
+                const pte = self.walk(null, a) catch |err| {
+                    assert(err == error.PteNotFound);
+                    continue;
+                };
+                if (!pte.perms.valid)
+                    continue;
+                if (allocator) |alloc| {
+                    alloc.destroy(@as(*[PTES]PageTableEntry, @ptrFromInt(pte.toPhysAddr())));
+                }
+                pte.* = .{};
+            }
+        }
+
+        /// Recursively free page-table pages.
+        /// All leaf mappings must already have been removed.
+        pub fn freeWalk(self: @This(), allocator: Allocator) void {
+            // there are 2^9 = 512 PTEs in a page table.
+            for (0..PTES) |idx| {
+                const pte = self.entries[idx];
+                if (pte.perms.valid) {
+                    assert(!pte.perms.readable and
+                        !pte.perms.writable and
+                        !pte.perms.executable);
+
+                    // this PTE points to a lower-level page table.
+                    const child: @This() = .{ .entries = @ptrFromInt(pte.toPhysAddr()) };
+                    child.freeWalk(allocator);
+                    self.entries[idx] = .{};
+                }
+            }
+            allocator.destroy(self.entries);
         }
 
         /// Create PTEs for virtual addresses starting at va that refer to
         /// physical addresses starting at pa.
         /// va and size MUST be page-aligned.
         /// Returns an error if walk() couldn't allocate a needed page-table page.
-        fn mapPages(self: @This(), allocator: ?Allocator, va: u64, pa: u64, sz: u64, perms: PtePerms) !void {
+        pub fn mapPages(
+            self: @This(),
+            allocator: ?Allocator,
+            va: u64,
+            pa: u64,
+            sz: u64,
+            perms: PtePerms,
+        ) !void {
             assert(va % riscv.PAGE_SIZE == 0);
             assert(sz % riscv.PAGE_SIZE == 0);
             assert(sz != 0);

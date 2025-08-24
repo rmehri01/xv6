@@ -1,21 +1,17 @@
 //! Mutual exclusion lock based on sleeping.
 
-const builtin = @import("builtin");
-
+const params = @import("../params.zig");
 const proc = @import("../proc.zig");
 const SpinLock = @import("SpinLock.zig");
 
 const SleepLock = @This();
-
-/// Whether extra safety checks are enabled.
-const safe = builtin.mode == .Debug or builtin.mode == .ReleaseSafe;
 
 /// Whether the sleep lock is being held.
 locked: bool = false,
 // SpinLock protecting this sleep lock.
 mutex: SpinLock,
 /// Process holding the lock.
-pid: if (safe) ?proc.Pid else void = if (safe) null else {},
+pid: ?proc.Pid = null,
 
 /// Acquire the lock. Sleeps until the lock is acquired.
 pub fn lock(self: *SleepLock) void {
@@ -25,9 +21,8 @@ pub fn lock(self: *SleepLock) void {
     }
 
     self.locked = true;
-    if (safe) {
-        self.pid = proc.myProc().?.public.pid.?;
-    }
+    self.pid = proc.myProc().?.public.pid.?;
+
     // TODO: defer?
     self.mutex.unlock();
 }
@@ -38,9 +33,7 @@ pub fn unlock(self: *SleepLock) void {
     defer self.mutex.unlock();
 
     self.locked = false;
-    if (safe) {
-        self.pid = null;
-    }
+    self.pid = null;
 
     proc.wakeUp(@intFromPtr(self));
 }
