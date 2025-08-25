@@ -74,6 +74,10 @@ pub const DiskInode = extern struct {
     size: u32,
     /// Data block addresses.
     addrs: [NUM_DIRECT + 1]u32,
+
+    comptime {
+        assert(BLOCK_SIZE % @sizeOf(DiskInode) == 0);
+    }
 };
 
 /// Types of files in the file system.
@@ -90,9 +94,8 @@ pub const FileType = enum(u16) {
 pub const DirEnt = extern struct {
     inum: u16,
     name: [DIR_NAME_SIZE]u8,
-};
 
-comptime {
-    assert(BLOCK_SIZE % @sizeOf(DiskInode) == 0);
-    assert(BLOCK_SIZE % @sizeOf(DirEnt) == 0);
-}
+    comptime {
+        assert(BLOCK_SIZE % @sizeOf(DirEnt) == 0);
+    }
+};

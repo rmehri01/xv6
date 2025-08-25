@@ -88,6 +88,22 @@ pub fn release(buf: *Buf) void {
     }
 }
 
+/// Pin the buf in the block cache to prevent it from being evicted.
+pub fn pin(buf: *Buf) void {
+    mutex.lock();
+    defer mutex.unlock();
+
+    buf.ref_count += 1;
+}
+
+/// Unpins a previously pinned buf, allowing it to be evicted again.
+pub fn unpin(buf: *Buf) void {
+    mutex.lock();
+    defer mutex.unlock();
+
+    buf.ref_count -= 1;
+}
+
 /// Look through buffer cache for block on device dev.
 /// If not found, allocate a buffer.
 /// In either case, return locked buffer.

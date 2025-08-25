@@ -78,7 +78,6 @@ pub fn build(b: *std.Build) !void {
         std.log.debug("*** Now run 'gdb' in another window.", .{});
     }
 
-    qemu_cmd.step.dependOn(&mkfs_run.step);
     qemu_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| qemu_cmd.addArgs(args);
     const run_step = b.step("run", "Start the kernel in qemu");

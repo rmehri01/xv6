@@ -4,6 +4,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
+const fs = @import("fs.zig");
 const memlayout = @import("memlayout.zig");
 const params = @import("params.zig");
 const riscv = @import("riscv.zig");
@@ -295,10 +296,10 @@ fn forkRet() void {
         // File system initialization must be run in the context of a
         // regular process (e.g., because it calls sleep), and thus cannot
         // be run from kmain().
-
-        // TODO: fsinit
-
+        fs.init(params.ROOT_DEV);
         first_proc.store(false, .release);
+
+        // TODO: exec
     }
 
     // TODO: forkret
