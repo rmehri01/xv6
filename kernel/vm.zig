@@ -206,6 +206,24 @@ pub fn PageTable(kind: PageTableKind) type {
             allocator.destroy(self.entries);
         }
 
+        /// Copy from kernel to user.
+        /// Copy bytes from src to virtual address dst in a given page table.
+        pub fn copyOut(self: @This(), dst: u64, src: []const u8) !void {
+            // TODO: implement
+            _ = self;
+            _ = dst;
+            _ = src;
+        }
+
+        /// Copy from user to kernel.
+        /// Copy len bytes to dst from virtual address srcva in a given page table.
+        pub fn copyIn(self: @This(), dst: []u8, src: u64) !void {
+            // TODO: implement
+            _ = self;
+            _ = dst;
+            _ = src;
+        }
+
         /// Create PTEs for virtual addresses starting at va that refer to
         /// physical addresses starting at pa.
         /// va and size MUST be page-aligned.

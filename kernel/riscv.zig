@@ -207,3 +207,8 @@ pub fn sfenceVma() void {
 pub fn pageRoundUp(addr: usize) usize {
     return (addr + PAGE_SIZE - 1) & ~@as(usize, (PAGE_SIZE - 1));
 }
+
+/// Rounds down addr to the closest page size.
+pub fn pageRoundDown(addr: usize) usize {
+    return addr & ~@as(usize, (PAGE_SIZE - 1));
+}

@@ -17,6 +17,7 @@ const bcache = @import("fs/bcache.zig");
 const defs = @import("fs/defs.zig");
 const log = @import("fs/log.zig");
 const params = @import("params.zig");
+const proc = @import("proc.zig");
 const SleepLock = @import("sync/SleepLock.zig");
 const SpinLock = @import("sync/SpinLock.zig");
 
@@ -110,6 +111,13 @@ fn initSuperBlock(dev: u32) void {
 // An inode.mutex sleep-lock protects all fields other than ref_count,
 // dev, and inum. One must hold inode.mutex in order to read or write
 // that inode's inode.valid, inode.dinode.size, inode.dinode.type, &c.
+//
+// Inode content
+//
+// The content (data) associated with each inode is stored
+// in blocks on the disk. The first NUM_DIRECT block numbers
+// are listed in inode.dinode.addrs. The next NUM_INDIRECT blocks are
+// listed in block inode.dinoe.addrs[NDIRECT].
 
 var itable: struct {
     /// Protects the inodes array, ensuring that an inode is present at most once and
@@ -335,6 +343,123 @@ const Inode = struct {
         disk_inode.* = self.dinode;
 
         log.write(buf);
+    }
+
+    /// Read data from inode.
+    /// Caller must hold inode.mutex.
+    fn read(self: *Inode, dest: proc.EitherAddr, offset: u32, num: u32) !u32 {
+        if (offset > self.dinode.size or offset + num < offset)
+            return error.InvalidReadRange;
+        const n = @min(offset + num, self.dinode.size - offset);
+
+        var bytes_read: u32 = 0;
+        while (bytes_read < n) {
+            const off = offset + bytes_read;
+            const dst: proc.EitherAddr = switch (dest) {
+                .user => |addr| .{ .user = addr + bytes_read },
+                .kernel => |addr| .{ .kernel = addr + bytes_read },
+            };
+
+            const block_num = try self.mapLogicalBlock(off / defs.BLOCK_SIZE);
+            const buf = bcache.read(self.dev, block_num);
+            defer buf.release();
+
+            const bytes_to_read =
+                @min(n - bytes_read, defs.BLOCK_SIZE - off % defs.BLOCK_SIZE);
+            try proc.eitherCopyOut(
+                dst,
+                buf.data[off % defs.BLOCK_SIZE ..][0..bytes_to_read],
+            );
+            bytes_read += bytes_to_read;
+        }
+
+        return bytes_read;
+    }
+
+    /// Write data to inode.
+    /// Caller must hold inode.mutex.
+    /// Returns the number of bytes successfully written.
+    fn write(self: *Inode, source: proc.EitherAddr, offset: u32, num: u32) !u32 {
+        if (offset > self.dinode.size or offset + num < offset)
+            return error.InvalidWriteRange;
+        if (offset + num > defs.MAX_FILE_BLOCKS * defs.BLOCK_SIZE)
+            return error.ExceedsMaxFileSize;
+
+        var bytes_written: u32 = 0;
+        while (bytes_written < num) {
+            const off = offset + bytes_written;
+            const src: proc.EitherAddr = switch (source) {
+                .user => |addr| .{ .user = addr + bytes_written },
+                .kernel => |addr| .{ .kernel = addr + bytes_written },
+            };
+
+            const block_num = try self.mapLogicalBlock(off / defs.BLOCK_SIZE);
+            const buf = bcache.read(self.dev, block_num);
+            defer buf.release();
+
+            const bytes_to_write =
+                @min(num - bytes_written, defs.BLOCK_SIZE - off % defs.BLOCK_SIZE);
+            try proc.eitherCopyIn(
+                buf.data[off % defs.BLOCK_SIZE ..][0..bytes_to_write],
+                src,
+            );
+            log.write(buf);
+            bytes_written += bytes_to_write;
+        }
+
+        const new_off = offset + bytes_written;
+        if (new_off > self.dinode.size) {
+            self.dinode.size = new_off;
+        }
+
+        // write the i-node back to disk even if the size didn't change
+        // because the loop above might have called mapLogicalBlock() and added a new
+        // block to ip.dinode.addrs.
+        self.update();
+
+        return bytes_written;
+    }
+
+    /// Return the disk block address of the nth block in inode.
+    /// If there is no such block, bmap allocates one.
+    /// Returns an error if out of disk space.
+    fn mapLogicalBlock(self: *Inode, logical_block_num: u32) !u32 {
+        var lbn = logical_block_num;
+
+        if (lbn < defs.NUM_DIRECT) {
+            var block_num = self.dinode.addrs[lbn];
+            if (block_num == 0) {
+                block_num = try allocBlock(self.dev);
+                self.dinode.addrs[lbn] = block_num;
+            }
+            return block_num;
+        }
+        lbn -= defs.NUM_DIRECT;
+
+        if (lbn < defs.NUM_INDIRECT) {
+            // Load indirect block, allocating if necessary.
+            var indirect_block_num = self.dinode.addrs[defs.NUM_DIRECT];
+            if (indirect_block_num == 0) {
+                indirect_block_num = try allocBlock(self.dev);
+                self.dinode.addrs[defs.NUM_DIRECT] = indirect_block_num;
+            }
+
+            const indirect_block = bcache.read(self.dev, indirect_block_num);
+            defer indirect_block.release();
+
+            const addrs =
+                std.mem.bytesAsSlice(u32, &indirect_block.data);
+            var block_num = addrs[lbn];
+            if (block_num == 0) {
+                block_num = try allocBlock(self.dev);
+                addrs[lbn] = block_num;
+                log.write(indirect_block);
+            }
+
+            return block_num;
+        }
+
+        std.debug.panic("logical block out of range: {}", .{logical_block_num});
     }
 };
 

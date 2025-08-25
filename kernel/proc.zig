@@ -426,3 +426,28 @@ pub fn wakeUp(chan: usize) void {
         }
     }
 }
+
+/// Either a user or kernel address.
+pub const EitherAddr = union(enum) { user: u64, kernel: u64 };
+
+/// Copy to either a user address, or kernel address, depending on dst.
+pub fn eitherCopyOut(dst: EitherAddr, bytes: []const u8) !void {
+    switch (dst) {
+        .user => |addr| {
+            const proc = myProc().?;
+            return proc.private.pageTable.?.copyOut(addr, bytes);
+        },
+        .kernel => |addr| @memcpy(@as([*]u8, @ptrFromInt(addr)), bytes),
+    }
+}
+
+/// Copy from either a user address, or kernel address, depending on src.
+pub fn eitherCopyIn(dst: []u8, src: EitherAddr) !void {
+    switch (src) {
+        .user => |addr| {
+            const proc = myProc().?;
+            return proc.private.pageTable.?.copyIn(dst, addr);
+        },
+        .kernel => |addr| @memcpy(dst, @as([*]u8, @ptrFromInt(addr))),
+    }
+}
