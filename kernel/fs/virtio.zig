@@ -357,14 +357,10 @@ fn alloc3Desc() ![3]u16 {
 
 /// Try to find a free descriptor, mark it non-free, return its index.
 fn allocDesc() !u16 {
-    for (0..NUM_DESC) |desc| {
-        if (!disk.free.isSet(desc)) {
-            disk.free.set(desc);
-            return @intCast(desc);
-        }
-    } else {
-        return error.OutOfDescriptors;
-    }
+    var it = disk.free.iterator(.{ .kind = .unset, .direction = .forward });
+    const desc = it.next() orelse return error.OutOfDescriptors;
+    disk.free.set(desc);
+    return @intCast(desc);
 }
 
 /// Mark a descriptor as free.
