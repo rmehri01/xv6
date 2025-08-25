@@ -32,21 +32,6 @@ var mutex: SpinLock = .{};
 /// head.next is most recent, head.prev is least.
 var head: DoublyLinkedList = .{};
 
-/// A single buffer, which is a copy of a disk block that can be
-/// read or written in memory and then flushed back to disk.
-pub const Buf = struct {
-    mutex: SleepLock,
-    /// Has data been read from disk?
-    valid: bool,
-    /// Does disk "own" buf?
-    disk_owned: bool,
-    dev: u32,
-    block_num: u32,
-    ref_count: u32,
-    data: [defs.BLOCK_SIZE]u8 align(8),
-    node: DoublyLinkedList.Node,
-};
-
 pub fn init() void {
     // Create linked list of buffers
     for (&bufs) |*buf| {
@@ -63,45 +48,6 @@ pub fn read(dev: u32, block_num: u32) *Buf {
     }
 
     return buf;
-}
-
-/// Write buf's contents to disk. Must be locked.
-pub fn write(buf: *Buf) void {
-    assert(buf.mutex.holding());
-    virtio.write(buf);
-}
-
-/// Release a locked buffer.
-/// Move to the head of the most-recently-used list.
-pub fn release(buf: *Buf) void {
-    assert(buf.mutex.holding());
-    buf.mutex.unlock();
-
-    mutex.lock();
-    defer mutex.unlock();
-
-    buf.ref_count -= 1;
-    if (buf.ref_count == 0) {
-        // no one is waiting for it.
-        head.remove(&buf.node);
-        head.prepend(&buf.node);
-    }
-}
-
-/// Pin the buf in the block cache to prevent it from being evicted.
-pub fn pin(buf: *Buf) void {
-    mutex.lock();
-    defer mutex.unlock();
-
-    buf.ref_count += 1;
-}
-
-/// Unpins a previously pinned buf, allowing it to be evicted again.
-pub fn unpin(buf: *Buf) void {
-    mutex.lock();
-    defer mutex.unlock();
-
-    buf.ref_count -= 1;
 }
 
 /// Look through buffer cache for block on device dev.
@@ -141,3 +87,57 @@ fn get(dev: u32, block_num: u32) *Buf {
         @panic("bcache out of buffers!");
     }
 }
+
+/// A single buffer, which is a copy of a disk block that can be
+/// read or written in memory and then flushed back to disk.
+pub const Buf = struct {
+    mutex: SleepLock,
+    /// Has data been read from disk?
+    valid: bool,
+    /// Does disk "own" buf?
+    disk_owned: bool,
+    dev: u32,
+    block_num: u32,
+    ref_count: u32,
+    data: [defs.BLOCK_SIZE]u8 align(8),
+    node: DoublyLinkedList.Node,
+
+    /// Write buf's contents to disk. Must be locked.
+    pub fn flush(self: *Buf) void {
+        assert(self.mutex.holding());
+        virtio.write(self);
+    }
+
+    /// Release a locked buffer.
+    /// Move to the head of the most-recently-used list.
+    pub fn release(self: *Buf) void {
+        assert(self.mutex.holding());
+        self.mutex.unlock();
+
+        mutex.lock();
+        defer mutex.unlock();
+
+        self.ref_count -= 1;
+        if (self.ref_count == 0) {
+            // no one is waiting for it.
+            head.remove(&self.node);
+            head.prepend(&self.node);
+        }
+    }
+
+    /// Pin the buf in the block cache to prevent it from being evicted.
+    pub fn pin(self: *Buf) void {
+        mutex.lock();
+        defer mutex.unlock();
+
+        self.ref_count += 1;
+    }
+
+    /// Unpins a previously pinned buf, allowing it to be evicted again.
+    pub fn unpin(self: *Buf) void {
+        mutex.lock();
+        defer mutex.unlock();
+
+        self.ref_count -= 1;
+    }
+};

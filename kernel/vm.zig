@@ -193,9 +193,9 @@ pub fn PageTable(kind: PageTableKind) type {
             for (0..PTES) |idx| {
                 const pte = self.entries[idx];
                 if (pte.perms.valid) {
-                    assert(!pte.perms.readable and
-                        !pte.perms.writable and
-                        !pte.perms.executable);
+                    assert(!pte.perms.readable);
+                    assert(!pte.perms.writable);
+                    assert(!pte.perms.executable);
 
                     // this PTE points to a lower-level page table.
                     const child: @This() = .{ .entries = @ptrFromInt(pte.toPhysAddr()) };

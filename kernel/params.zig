@@ -15,6 +15,8 @@ pub const TIMER_INTERVAL = 1000000;
 
 /// Device number of file system root disk.
 pub const ROOT_DEV = 1;
+/// Maximum number of active i-nodes.
+pub const NUM_INODE = 50;
 /// Size of disk block cache.
 pub const NUM_BUF = MAX_OP_BLOCKS * 3;
 /// Max data blocks in on-disk log.

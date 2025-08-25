@@ -90,11 +90,11 @@ pub fn beginOp() void {
 /// Record the block number and pin in the cache by increasing ref_count.
 /// commit()/flushLog() will do the disk write.
 ///
-/// log.write() replaces bcache.write(); a typical use is:
+/// log.write() replaces buf.flush(); a typical use is:
 ///
 /// ```zig
 ///   const buf = bcache.read(...);
-///   defer bcache.release(buf);
+///   defer buf.release();
 ///   // modify buf.data[];
 ///   log.write(buf);
 /// ```
@@ -113,7 +113,7 @@ pub fn write(buf: *bcache.Buf) void {
     } else value: {
         // Add new block to log
         defer log.header.n += 1;
-        bcache.pin(buf);
+        buf.pin();
         break :value log.header.n;
     };
     log.header.blocks[idx] = buf.block_num;
@@ -173,15 +173,15 @@ fn flushLog() void {
     for (0..log.header.n) |idx| {
         // log block
         const to = bcache.read(log.dev, @intCast(log.start + idx + 1));
-        defer bcache.release(to);
+        defer to.release();
 
         // cache block
         const from = bcache.read(log.dev, log.header.blocks[idx]);
-        defer bcache.release(from);
+        defer from.release();
 
         // write the log
         @memcpy(&to.data, &from.data);
-        bcache.write(to);
+        to.flush();
     }
 }
 
@@ -199,7 +199,7 @@ fn recoverFromLog() void {
 /// Read the log header from disk into the in-memory log header.
 fn readHead() void {
     const buf = bcache.read(log.dev, log.start);
-    defer bcache.release(buf);
+    defer buf.release();
 
     log.header = std.mem.bytesToValue(Header, &buf.data);
 }
@@ -214,16 +214,16 @@ fn flushTransaction(comptime recovering: bool) void {
 
         // read log block
         const data_buf = bcache.read(log.dev, @intCast(log.start + idx + 1));
-        defer bcache.release(data_buf);
+        defer data_buf.release();
 
         // read dst
         const dst_buf = bcache.read(log.dev, block_num);
-        defer bcache.release(dst_buf);
+        defer dst_buf.release();
 
         @memcpy(&dst_buf.data, &data_buf.data);
-        bcache.write(dst_buf);
+        dst_buf.flush();
         if (!recovering) {
-            bcache.unpin(dst_buf);
+            dst_buf.unpin();
         }
     }
 }
@@ -232,9 +232,9 @@ fn flushTransaction(comptime recovering: bool) void {
 /// This is the true point at which the current transaction commits.
 fn flushHead() void {
     const buf = bcache.read(log.dev, log.start);
-    defer bcache.release(buf);
+    defer buf.release();
 
     const logBytes = std.mem.asBytes(&log.header);
     @memcpy(buf.data[0..logBytes.len], logBytes);
-    bcache.write(buf);
+    buf.flush();
 }
