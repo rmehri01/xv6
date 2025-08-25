@@ -50,12 +50,12 @@ pub const SuperBlock = extern struct {
     bmap_start: u32,
 
     /// Block containing inode number inum.
-    pub fn inodeBlock(self: SuperBlock, inum: u32) usize {
+    pub fn inodeBlock(self: SuperBlock, inum: u32) u32 {
         return inum / IPB + self.inode_start;
     }
 
     /// Block of free map containing bit for block_num.
-    pub fn bitmapBlock(self: SuperBlock, block_num: u32) usize {
+    pub fn bitmapBlock(self: SuperBlock, block_num: u32) u32 {
         return block_num / BPB + self.bmap_start;
     }
 };

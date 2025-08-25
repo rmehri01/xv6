@@ -43,7 +43,7 @@ pub const Buf = struct {
     dev: u32,
     block_num: u32,
     ref_count: u32,
-    data: [defs.BLOCK_SIZE]u8,
+    data: [defs.BLOCK_SIZE]u8 align(8),
     node: DoublyLinkedList.Node,
 };
 
