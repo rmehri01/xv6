@@ -431,26 +431,31 @@ pub fn wakeUp(chan: usize) void {
 }
 
 /// Either a user or kernel address.
-pub const EitherAddr = union(enum) { user: u64, kernel: u64 };
+pub const EitherAddr = union(enum) {
+    user: struct { addr: u64, len: u64 },
+    kernel: []u8,
+};
 
 /// Copy to either a user address, or kernel address, depending on dst.
-pub fn eitherCopyOut(dst: EitherAddr, bytes: []const u8) !void {
+pub fn eitherCopyOut(dst: EitherAddr, src: []const u8) !void {
     switch (dst) {
-        .user => |addr| {
+        .user => |dest| {
             const proc = myProc().?;
-            return proc.private.pageTable.?.copyOut(addr, bytes);
+            assert(dest.len == src.len);
+            return proc.private.pageTable.?.copyOut(dest.addr, src);
         },
-        .kernel => |addr| @memcpy(@as([*]u8, @ptrFromInt(addr)), bytes),
+        .kernel => |dest| @memcpy(dest, src),
     }
 }
 
 /// Copy from either a user address, or kernel address, depending on src.
 pub fn eitherCopyIn(dst: []u8, src: EitherAddr) !void {
     switch (src) {
-        .user => |addr| {
+        .user => |source| {
             const proc = myProc().?;
-            return proc.private.pageTable.?.copyIn(dst, addr);
+            assert(source.len == dst.len);
+            return proc.private.pageTable.?.copyIn(dst, source.addr);
         },
-        .kernel => |addr| @memcpy(dst, @as([*]u8, @ptrFromInt(addr))),
+        .kernel => |source| @memcpy(dst, source),
     }
 }

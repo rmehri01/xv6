@@ -101,9 +101,8 @@ fn lookupDir(dir_inode: *Inode, name: []const u8) ?struct { *Inode, u32 } {
     while (off < dir_inode.dinode.size) : (off += @sizeOf(defs.DirEnt)) {
         var dirent: defs.DirEnt = undefined;
         const read = dir_inode.read(
-            .{ .kernel = @intFromPtr(&dirent) },
+            .{ .kernel = std.mem.asBytes(&dirent) },
             off,
-            @sizeOf(defs.DirEnt),
         ) catch |err| std.debug.panic("failed to read directory entry: {}", .{err});
         assert(read == @sizeOf(defs.DirEnt));
 
@@ -134,9 +133,8 @@ fn linkDir(dir_inode: *Inode, name: []const u8, inum: u16) !void {
     while (off < dir_inode.dinode.size) : (off += @sizeOf(defs.DirEnt)) {
         var dirent: defs.DirEnt = undefined;
         const read = dir_inode.read(
-            .{ .kernel = @intFromPtr(&dirent) },
+            .{ .kernel = std.mem.asBytes(&dirent) },
             off,
-            @sizeOf(defs.DirEnt),
         ) catch |err| std.debug.panic("failed to read directory entry: {}", .{err});
         assert(read == @sizeOf(defs.DirEnt));
 
@@ -151,9 +149,8 @@ fn linkDir(dir_inode: *Inode, name: []const u8, inum: u16) !void {
     };
     @memcpy(new_dirent.name[0..name.len], name);
     const written = try dir_inode.write(
-        .{ .kernel = @intFromPtr(&new_dirent) },
+        .{ .kernel = std.mem.asBytes(&new_dirent) },
         off,
-        @sizeOf(defs.DirEnt),
     );
     assert(written == @sizeOf(defs.DirEnt));
 }
@@ -472,7 +469,11 @@ pub const Inode = struct {
 
     /// Read data from inode.
     /// Caller must hold inode.mutex.
-    fn read(self: *Inode, dest: proc.EitherAddr, offset: u32, num: u32) !u32 {
+    fn read(self: *Inode, dest: proc.EitherAddr, offset: u32) !u32 {
+        const num = switch (dest) {
+            .user => |dst| dst.len,
+            .kernel => |dst| dst.len,
+        };
         if (offset > self.dinode.size or offset + num < offset)
             return error.InvalidReadRange;
         const n = if (offset + num > self.dinode.size)
@@ -484,8 +485,10 @@ pub const Inode = struct {
         while (bytes_read < n) {
             const off = offset + bytes_read;
             const dst: proc.EitherAddr = switch (dest) {
-                .user => |addr| .{ .user = addr + bytes_read },
-                .kernel => |addr| .{ .kernel = addr + bytes_read },
+                .user => |dst| .{
+                    .user = .{ .addr = dst.addr + bytes_read, .len = dst.len },
+                },
+                .kernel => |dst| .{ .kernel = dst[bytes_read..] },
             };
 
             const block_num = try self.mapLogicalBlock(off / defs.BLOCK_SIZE);
@@ -507,7 +510,11 @@ pub const Inode = struct {
     /// Write data to inode.
     /// Caller must hold inode.mutex.
     /// Returns the number of bytes successfully written.
-    fn write(self: *Inode, source: proc.EitherAddr, offset: u32, num: u32) !u32 {
+    fn write(self: *Inode, source: proc.EitherAddr, offset: u32) !u32 {
+        const num = switch (source) {
+            .user => |src| src.len,
+            .kernel => |src| src.len,
+        };
         if (offset > self.dinode.size or offset + num < offset)
             return error.InvalidWriteRange;
         if (offset + num > defs.MAX_FILE_BLOCKS * defs.BLOCK_SIZE)
@@ -517,8 +524,10 @@ pub const Inode = struct {
         while (bytes_written < num) {
             const off = offset + bytes_written;
             const src: proc.EitherAddr = switch (source) {
-                .user => |addr| .{ .user = addr + bytes_written },
-                .kernel => |addr| .{ .kernel = addr + bytes_written },
+                .user => |src| .{
+                    .user = .{ .addr = src.addr + bytes_written, .len = src.len },
+                },
+                .kernel => |src| .{ .kernel = src[bytes_written..] },
             };
 
             const block_num = try self.mapLogicalBlock(off / defs.BLOCK_SIZE);

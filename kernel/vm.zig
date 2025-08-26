@@ -213,6 +213,7 @@ pub fn PageTable(kind: PageTableKind) type {
             _ = self;
             _ = dst;
             _ = src;
+            @panic("copyOut unimplemented");
         }
 
         /// Copy from user to kernel.
@@ -222,6 +223,7 @@ pub fn PageTable(kind: PageTableKind) type {
             _ = self;
             _ = dst;
             _ = src;
+            @panic("copyIn unimplemented");
         }
 
         /// Create PTEs for virtual addresses starting at va that refer to
