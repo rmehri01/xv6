@@ -126,7 +126,7 @@ const Process = struct {
         // which returns to user space.
         proc.private.context = std.mem.zeroInit(Context, .{
             .ra = @intFromPtr(&forkRet),
-            .sp = proc.private.kstack + riscv.PAGE_SIZE,
+            .sp = proc.private.kstack + params.STACK_SIZE,
         });
 
         return proc;

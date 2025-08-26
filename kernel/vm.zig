@@ -97,7 +97,7 @@ pub fn init(allocator: Allocator) !void {
             allocator,
             va,
             @intFromPtr(pa.ptr),
-            riscv.PAGE_SIZE,
+            params.STACK_SIZE,
             .{
                 .readable = true,
                 .writable = true,
@@ -119,7 +119,7 @@ pub fn initHart() void {
 /// Returns the virtual address for the given processes' kernel stack, leaving an extra
 /// guard page to detect stack overflow.
 pub fn kStackVAddr(proc_num: usize) usize {
-    return memlayout.TRAMPOLINE - (proc_num + 1) * 2 * riscv.PAGE_SIZE;
+    return memlayout.TRAMPOLINE - (proc_num + 1) * (params.STACK_SIZE + riscv.PAGE_SIZE);
 }
 
 /// Page tables have different operations depending if they are for the kernel or for users.
