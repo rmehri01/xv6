@@ -40,6 +40,56 @@ fn initSuperBlock(dev: u32) void {
     assert(sb.magic == defs.FS_MAGIC);
 }
 
+// Paths.
+
+/// Look up and return the inode for a path name.
+/// Must be called inside a transaction since it calls put().
+pub fn lookupPath(path: []const u8) !*Inode {
+    const inode, _ = try lookupPathImpl(path, false);
+    return inode;
+}
+
+/// Look up and return the parent inode and name for a path name.
+/// Must be called inside a transaction since it calls put().
+fn lookupParent(path: []const u8) !struct { *Inode, []const u8 } {
+    return try lookupPathImpl(path, true);
+}
+
+fn lookupPathImpl(path: []const u8, parent: bool) !struct { *Inode, []const u8 } {
+    var inode = if (std.mem.startsWith(u8, path, "/"))
+        getInode(params.ROOT_DEV, defs.ROOT_INUM)
+    else
+        proc.myProc().?.private.cwd.?.dup();
+
+    // iterate over the path components from the root
+    var it = std.mem.tokenizeScalar(u8, path, '/');
+    while (it.next()) |component| {
+        inode.lock();
+        errdefer inode.unlockPut();
+
+        if (inode.dinode.type != @intFromEnum(defs.FileType.dir))
+            return error.NotADir;
+
+        if (parent and it.peek() == null) {
+            // Stop one level early.
+            inode.unlock();
+            return .{ inode, component };
+        }
+
+        const next, _ = lookupDir(inode, component) orelse
+            return error.InvalidDirectory;
+        inode.unlockPut();
+        inode = next;
+    }
+
+    if (parent) {
+        inode.put();
+        return error.NoParent;
+    }
+
+    return .{ inode, undefined };
+}
+
 // Directories.
 
 /// Look for a directory entry in a directory.
@@ -60,7 +110,7 @@ fn lookupDir(dir_inode: *Inode, name: []const u8) ?struct { *Inode, u32 } {
         if (dirent.inum == 0)
             continue;
 
-        if (std.mem.order(u8, dirent.name[0..name.len], name) == .eq) {
+        if (std.mem.eql(u8, dirent.name[0..name.len], name)) {
             // entry matches path element
             return .{ getInode(dir_inode.dev, dirent.inum), off };
         }
@@ -249,16 +299,13 @@ fn getInode(dev: u32, inum: u32) *Inode {
         }
     }
 
-    if (empty) |inode| {
-        // Recycle an inode entry.
-        inode.dev = dev;
-        inode.inum = inum;
-        inode.ref_count = 1;
-        inode.valid = false;
-        return inode;
-    } else {
-        @panic("no more inodes left on disk");
-    }
+    // Recycle an inode entry.
+    const inode = empty orelse @panic("no more inodes left on disk");
+    inode.dev = dev;
+    inode.inum = inum;
+    inode.ref_count = 1;
+    inode.valid = false;
+    return inode;
 }
 
 /// Reclaims any inodes on disk that have no links but have a non-zero type.
@@ -289,7 +336,7 @@ fn reclaimInodes(dev: u32) void {
 }
 
 /// In-memory copy of an inode.
-const Inode = struct {
+pub const Inode = struct {
     /// Device number
     dev: u32,
     /// Inode number
@@ -334,6 +381,16 @@ const Inode = struct {
         assert(self.ref_count >= 1);
 
         self.mutex.unlock();
+    }
+
+    /// Increment reference count for inode.
+    /// Returns a pointer to enable const inode = other.dup(); idiom.
+    fn dup(self: *Inode) *Inode {
+        itable.mutex.lock();
+        defer itable.mutex.unlock();
+
+        self.ref_count += 1;
+        return self;
     }
 
     /// Drop a reference to an in-memory inode.

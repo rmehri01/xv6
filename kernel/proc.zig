@@ -31,6 +31,7 @@ var procs: [params.MAX_PROCS]Process = init: {
                 .trapFrame = null,
                 .pageTable = null,
                 .context = null,
+                .cwd = null,
             },
         };
     }
@@ -79,6 +80,8 @@ const Process = struct {
         pageTable: ?vm.PageTable(.user),
         /// ctxSwitch() here to run process
         context: ?Context,
+        /// Current directory
+        cwd: ?*fs.Inode,
     },
 
     /// Give up the CPU for one scheduling round.
@@ -251,7 +254,7 @@ pub fn userInit(allocator: Allocator) !void {
     initProc = try .alloc(allocator);
     defer initProc.mutex.unlock();
 
-    // TODO: cwd
+    initProc.private.cwd = fs.lookupPath("/") catch unreachable;
     initProc.public.state = .runnable;
 }
 

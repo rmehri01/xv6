@@ -205,10 +205,10 @@ pub fn sfenceVma() void {
 
 /// Rounds up addr to the closest page size.
 pub fn pageRoundUp(addr: usize) usize {
-    return (addr + PAGE_SIZE - 1) & ~@as(usize, (PAGE_SIZE - 1));
+    return std.mem.alignForward(usize, addr, PAGE_SIZE);
 }
 
 /// Rounds down addr to the closest page size.
 pub fn pageRoundDown(addr: usize) usize {
-    return addr & ~@as(usize, (PAGE_SIZE - 1));
+    return std.mem.alignBackward(usize, addr, PAGE_SIZE);
 }

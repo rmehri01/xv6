@@ -278,17 +278,14 @@ pub fn PageTable(kind: PageTableKind) type {
                 if (pte.perms.valid) {
                     pt = .{ .entries = @ptrFromInt(pte.toPhysAddr()) };
                 } else {
-                    if (allocator) |alloc| {
-                        const entries = try alloc.create([PTES]PageTableEntry);
-                        @memset(entries, .{});
+                    const alloc = allocator orelse return error.PteNotFound;
+                    const entries = try alloc.create([PTES]PageTableEntry);
+                    @memset(entries, .{});
 
-                        pte.* = PageTableEntry.fromPhysAddr(@intFromPtr(entries));
-                        pte.perms.valid = true;
+                    pte.* = PageTableEntry.fromPhysAddr(@intFromPtr(entries));
+                    pte.perms.valid = true;
 
-                        pt = .{ .entries = entries };
-                    } else {
-                        return error.PteNotFound;
-                    }
+                    pt = .{ .entries = entries };
                 }
             }
 
