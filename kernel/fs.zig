@@ -40,6 +40,74 @@ fn initSuperBlock(dev: u32) void {
     assert(sb.magic == defs.FS_MAGIC);
 }
 
+// Directories.
+
+/// Look for a directory entry in a directory.
+/// If found, return the corresponding inode and it's byte offset.
+fn lookupDir(dir_inode: *Inode, name: []const u8) ?struct { *Inode, u32 } {
+    assert(dir_inode.dinode.type == @intFromEnum(defs.FileType.dir));
+
+    var off: u32 = 0;
+    while (off < dir_inode.dinode.size) : (off += @sizeOf(defs.DirEnt)) {
+        var dirent: defs.DirEnt = undefined;
+        const read = dir_inode.read(
+            .{ .kernel = @intFromPtr(&dirent) },
+            off,
+            @sizeOf(defs.DirEnt),
+        ) catch |err| std.debug.panic("failed to read directory entry: {}", .{err});
+        assert(read == @sizeOf(defs.DirEnt));
+
+        if (dirent.inum == 0)
+            continue;
+
+        if (std.mem.order(u8, dirent.name[0..name.len], name) == .eq) {
+            // entry matches path element
+            return .{ getInode(dir_inode.dev, dirent.inum), off };
+        }
+    } else {
+        return null;
+    }
+}
+
+/// Write a new directory entry (name, inum) into the directory.
+fn linkDir(dir_inode: *Inode, name: []const u8, inum: u16) !void {
+    assert(dir_inode.dinode.type == @intFromEnum(defs.FileType.dir));
+
+    // Check that name is not present.
+    if (lookupDir(dir_inode, name)) |inode| {
+        inode.@"0".put();
+        return error.DirEntAlreadyExists;
+    }
+
+    // Look for an empty dirent.
+    var off: u32 = 0;
+    while (off < dir_inode.dinode.size) : (off += @sizeOf(defs.DirEnt)) {
+        var dirent: defs.DirEnt = undefined;
+        const read = dir_inode.read(
+            .{ .kernel = @intFromPtr(&dirent) },
+            off,
+            @sizeOf(defs.DirEnt),
+        ) catch |err| std.debug.panic("failed to read directory entry: {}", .{err});
+        assert(read == @sizeOf(defs.DirEnt));
+
+        if (dirent.inum == 0) {
+            break;
+        }
+    }
+
+    var new_dirent: defs.DirEnt = .{
+        .inum = inum,
+        .name = [_]u8{0} ** defs.DIR_NAME_SIZE,
+    };
+    @memcpy(new_dirent.name[0..name.len], name);
+    const written = try dir_inode.write(
+        .{ .kernel = @intFromPtr(&new_dirent) },
+        off,
+        @sizeOf(defs.DirEnt),
+    );
+    assert(written == @sizeOf(defs.DirEnt));
+}
+
 // Inodes.
 //
 // An inode describes a single unnamed file.
@@ -350,7 +418,10 @@ const Inode = struct {
     fn read(self: *Inode, dest: proc.EitherAddr, offset: u32, num: u32) !u32 {
         if (offset > self.dinode.size or offset + num < offset)
             return error.InvalidReadRange;
-        const n = @min(offset + num, self.dinode.size - offset);
+        const n = if (offset + num > self.dinode.size)
+            self.dinode.size - offset
+        else
+            num;
 
         var bytes_read: u32 = 0;
         while (bytes_read < n) {
