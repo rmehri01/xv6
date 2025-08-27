@@ -55,6 +55,9 @@ pub const ReadCSR = enum {
     menvcfg,
     /// Machine-mode Counter-Enable.
     mcounteren,
+    /// Supervisor address translation and protection;
+    /// holds the address of the page table.
+    satp,
     /// Machine-mode Interrupt Enable.
     mie,
     /// Supervisor Interrupt Enable.

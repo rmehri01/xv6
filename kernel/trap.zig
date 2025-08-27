@@ -4,12 +4,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const fmt = @import("fmt.zig");
+const virtio = @import("fs/virtio.zig");
+const memlayout = @import("memlayout.zig");
 const params = @import("params.zig");
 const plic = @import("plic.zig");
-const uart = @import("uart.zig");
 const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
-const virtio = @import("fs/virtio.zig");
+const uart = @import("uart.zig");
 
 var ticks: std.atomic.Value(usize) = .init(0);
 
@@ -155,4 +157,86 @@ fn handleClockIntr() void {
 
     const time = riscv.csrr(.time);
     riscv.csrw(.stimecmp, time + params.TIMER_INTERVAL);
+}
+
+/// Set up trapframe and control registers for a return to user space.
+pub fn prepareReturn() void {
+    const p = proc.myProc().?;
+
+    // We're about to switch the destination of traps from
+    // kernelTrap() to userTrap(). Because a trap from kernel
+    // code to userTrap would be a disaster, turn off interrupts.
+    riscv.intrOff();
+
+    // Send syscalls, interrupts, and exceptions to userVec in trampoline.zig
+    const trampoline_user_vec = memlayout.TRAMPOLINE;
+    riscv.csrw(.stvec, trampoline_user_vec);
+
+    // Set up trapframe values that userVec will need when
+    // the process next traps into the kernel.
+    const trap_frame = p.private.trap_frame.?;
+    // kernel page table
+    trap_frame.kernel_satp = riscv.csrr(.satp);
+    // process's kernel stack
+    trap_frame.kernel_sp = p.private.kstack + riscv.PAGE_SIZE;
+    trap_frame.kernel_trap = @intFromPtr(&userTrap);
+    // hartid for cpuid()
+    trap_frame.kernel_hartid = riscv.read(.tp);
+
+    // Set up the registers that trampoline.zig's sret will use
+    // to get to user space.
+
+    // Set S Previous Privilege mode to User.
+    var sstatus = riscv.csrr(.sstatus);
+    // clear SPP to 0 for user mode
+    sstatus &= ~@as(u64, riscv.SSTATUS_SPP);
+    // enable interrupts in user mode
+    sstatus |= riscv.SSTATUS_SPIE;
+    riscv.csrw(.sstatus, sstatus);
+
+    // Set S Exception Program Counter to the saved user pc.
+    riscv.csrw(.sepc, trap_frame.epc);
+}
+
+/// Handle an interrupt, exception, or system call from user space.
+/// called from, and returns to, trampoline.zig.
+/// Return value is user satp for trampoline.zig to switch to.
+fn userTrap() u64 {
+    assert(riscv.csrr(.sstatus) & riscv.SSTATUS_SPP == 0);
+
+    // send interrupts and exceptions to kerneltrap(),
+    // since we're now in the kernel.
+    riscv.csrw(.stvec, @intFromPtr(&kernelVec));
+
+    const p = proc.myProc().?;
+
+    // save user program counter.
+    p.private.trap_frame.?.epc = riscv.csrr(.sepc);
+
+    const scause = riscv.csrr(.scause);
+    if (scause == 8) {
+        @panic("syscall unimplemented");
+    } else if (handleDevIntr() != .unknown) {
+        // ok
+    } else if ((scause == 15 or scause == 13) and
+        if (p.private.page_table.?.handleFault(riscv.csrr(.stval))) |_| true else |_| false)
+    {
+        // page fault on lazily-allocated page
+    } else {
+        fmt.println(
+            "unexpected user trap: scause=0x{x} pid={d} sepc=0x{x:0>16} stval=0x{x}",
+            .{ scause, p.public.pid.?, riscv.csrr(.sepc), riscv.csrr(.stval) },
+        );
+        // TODO: kill
+    }
+
+    // TODO: kill
+    // TODO: yield
+
+    prepareReturn();
+
+    // The user page table to switch to, for trampoline.zig
+    const satp = p.private.page_table.?.makeSatp();
+    // Return to trampoline.S; satp value in a0.
+    return satp;
 }

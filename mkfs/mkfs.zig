@@ -89,8 +89,8 @@ pub fn main() !void {
 
     // write user files
     while (args.next()) |path| {
-        const shortName = std.mem.trimStart(u8, path, "user/");
-        assert(!std.mem.containsAtLeastScalar(u8, shortName, 1, '/'));
+        var path_parts = std.mem.splitBackwardsScalar(u8, path, '/');
+        const shortName = path_parts.next().?;
         assert(shortName.len <= fsdefs.DIR_NAME_SIZE);
         // TODO: leading _ for binary names?
 

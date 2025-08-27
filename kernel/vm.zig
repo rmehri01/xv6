@@ -138,7 +138,7 @@ pub fn PageTable(kind: PageTableKind) type {
             va: u64,
             pa: u64,
             size: u64,
-            perms: PtePerms,
+            perms: PageTableEntry.Perms,
         ) !void {
             comptime assert(kind == .kernel);
             try self.mapPages(allocator, va, pa, size, perms);
@@ -209,21 +209,122 @@ pub fn PageTable(kind: PageTableKind) type {
         /// Copy from kernel to user.
         /// Copy bytes from src to virtual address dst in a given page table.
         pub fn copyOut(self: @This(), dst: u64, src: []const u8) !void {
-            // TODO: implement
-            _ = self;
-            _ = dst;
-            _ = src;
-            @panic("copyOut unimplemented");
+            var source = src;
+            var dst_va = dst;
+            while (source.len > 0) {
+                const va = riscv.pageRoundDown(dst_va);
+                if (va >= riscv.MAX_VA)
+                    return error.InvalidVirtAddr;
+
+                const pa = self.walkAddr(va) catch
+                    try self.handleFault(va);
+                const pte = try self.walk(null, va);
+
+                // forbid copyout over read-only user text pages.
+                if (!pte.perms.writable)
+                    return error.ReadOnlyPage;
+
+                var n = riscv.PAGE_SIZE - (dst_va - va);
+                if (n > source.len)
+                    n = source.len;
+                @memcpy(@as([*]u8, @ptrFromInt(pa + (dst_va - va))), source[0..n]);
+
+                source = source[n..];
+                dst_va = va + riscv.PAGE_SIZE;
+            }
         }
 
         /// Copy from user to kernel.
         /// Copy len bytes to dst from virtual address srcva in a given page table.
         pub fn copyIn(self: @This(), dst: []u8, src: u64) !void {
+            comptime assert(kind == .user);
             // TODO: implement
             _ = self;
             _ = dst;
             _ = src;
             @panic("copyIn unimplemented");
+        }
+
+        /// Allocate and map user memory if process is referencing a page
+        /// that was lazily allocated in sbrk().
+        /// Returns an error if va is invalid or already mapped, or if
+        /// out of physical memory, and physical address if successful.
+        pub fn handleFault(self: @This(), va: u64) !u64 {
+            _ = self; // autofix
+            _ = va; // autofix
+            @panic("handle fault unimplemented");
+        }
+
+        /// Allocate PTEs and physical memory to grow a process from old_size to
+        /// new_size, which need not be page aligned. Returns new size or an error.
+        pub fn grow(
+            self: @This(),
+            allocator: Allocator,
+            old_size: u64,
+            new_size: u64,
+            perms: PageTableEntry.Perms,
+        ) !u64 {
+            comptime assert(kind == .user);
+
+            if (new_size < old_size)
+                return old_size;
+
+            const old = riscv.pageRoundUp(old_size);
+            var addr = old;
+            errdefer _ = self.shrink(allocator, addr, old);
+
+            while (addr < new_size) : (addr += riscv.PAGE_SIZE) {
+                const mem = try allocator.alloc(u8, riscv.PAGE_SIZE);
+                errdefer allocator.free(mem);
+
+                @memset(mem, 0);
+                var p = perms;
+                p.readable = true;
+                p.user = true;
+                try self.mapPages(
+                    allocator,
+                    addr,
+                    @intFromPtr(mem.ptr),
+                    riscv.PAGE_SIZE,
+                    p,
+                );
+            }
+
+            return new_size;
+        }
+
+        /// Deallocate user pages to bring the process size from old_size to
+        /// new_size. old_size and new_size need not be page-aligned, nor does new_size
+        /// need to be less than old_size. old_size can be larger than the actual
+        /// process size. Returns the new process size.
+        pub fn shrink(
+            self: @This(),
+            allocator: Allocator,
+            old_size: u64,
+            new_size: u64,
+        ) u64 {
+            comptime assert(kind == .user);
+            if (new_size >= old_size)
+                return old_size;
+
+            const new = riscv.pageRoundUp(new_size);
+            const old = riscv.pageRoundUp(old_size);
+            if (new < old) {
+                const num_pages = (old - new) / riscv.PAGE_SIZE;
+                self.unmap(allocator, new, num_pages);
+            }
+
+            return new_size;
+        }
+
+        /// Mark a PTE invalid for user access. Used by exec for the user stack guard page.
+        pub fn clear(
+            self: @This(),
+            va: u64,
+        ) void {
+            const pte = self.walk(null, va) catch |err|
+                std.debug.panic("trying to clear invalid pte: {}", .{err});
+            pte.perms.user = false;
         }
 
         /// Create PTEs for virtual addresses starting at va that refer to
@@ -232,11 +333,11 @@ pub fn PageTable(kind: PageTableKind) type {
         /// Returns an error if walk() couldn't allocate a needed page-table page.
         pub fn mapPages(
             self: @This(),
-            allocator: ?Allocator,
+            allocator: Allocator,
             va: u64,
             pa: u64,
             size: u64,
-            perms: PtePerms,
+            perms: PageTableEntry.Perms,
         ) !void {
             assert(va % riscv.PAGE_SIZE == 0);
             assert(size % riscv.PAGE_SIZE == 0);
@@ -256,6 +357,22 @@ pub fn PageTable(kind: PageTableKind) type {
                 pte.perms = perms;
                 pte.perms.valid = true;
             }
+        }
+
+        /// Look up a virtual address, return the physical address, or an error if not mapped.
+        /// Can only be used to look up user pages.
+        pub fn walkAddr(self: @This(), va: u64) !u64 {
+            comptime assert(kind == .user);
+            if (va >= riscv.MAX_VA)
+                return error.InvalidVirtAddr;
+
+            const pte = try self.walk(null, va);
+            if (!pte.perms.valid)
+                return error.InvalidPageTableEntry;
+            if (!pte.perms.user)
+                return error.InaccessiblePageTableEntry;
+
+            return pte.toPhysAddr();
         }
 
         /// Return the address of the PTE in page table that corresponds to
@@ -295,12 +412,12 @@ pub fn PageTable(kind: PageTableKind) type {
         }
 
         /// Format the page table for writing to the SATP register.
-        fn makeSatp(self: @This()) u64 {
+        pub fn makeSatp(self: @This()) u64 {
             return riscv.SATP_SV39 | (@intFromPtr(self.entries) >> PAGE_SHIFT);
         }
 
         /// Prints the page table for debugging purposes.
-        fn debugPrint(self: @This()) void {
+        pub fn debugPrint(self: @This()) void {
             fmt.println("page table {*}", .{self.entries});
             self.debugPrintLevel(0, 2);
         }
@@ -325,14 +442,26 @@ pub fn PageTable(kind: PageTableKind) type {
 
 /// A single entry in the page table that points to the next level and has permissions
 /// for how it can be used.
-const PageTableEntry = packed struct(u64) {
+pub const PageTableEntry = packed struct(u64) {
     /// Permissions.
-    perms: PtePerms = .{},
+    perms: Perms = .{},
     /// Reserved for supervisor software.
     rsw: u2 = 0,
     /// Physical Page Number.
     ppn: u44 = 0,
     reserved: u10 = 0,
+
+    /// Permissions for page table entries.
+    pub const Perms = packed struct(u8) {
+        valid: bool = false,
+        readable: bool = false,
+        writable: bool = false,
+        executable: bool = false,
+        user: bool = false,
+        global: bool = false,
+        accessed: bool = false,
+        dirty: bool = false,
+    };
 
     /// Produces a PTE with a ppn from the given physical address.
     fn fromPhysAddr(pa: u64) @This() {
@@ -343,18 +472,6 @@ const PageTableEntry = packed struct(u64) {
     fn toPhysAddr(self: PageTableEntry) u64 {
         return @as(u64, self.ppn) << PAGE_SHIFT;
     }
-};
-
-/// Permissions for page table entries.
-pub const PtePerms = packed struct(u8) {
-    valid: bool = false,
-    readable: bool = false,
-    writable: bool = false,
-    executable: bool = false,
-    user: bool = false,
-    global: bool = false,
-    accessed: bool = false,
-    dirty: bool = false,
 };
 
 /// 9 bits.

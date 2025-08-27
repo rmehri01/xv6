@@ -44,6 +44,6 @@ pub const TRAMPOLINE = riscv.MAX_VA - riscv.PAGE_SIZE;
 //   fixed-size stack
 //   expandable heap
 //   ...
-//   TRAPFRAME (p.trapframe, used by the trampoline)
+//   TRAP_FRAME (p.trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
 pub const TRAP_FRAME = TRAMPOLINE - riscv.PAGE_SIZE;

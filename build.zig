@@ -4,6 +4,21 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const init = b.addExecutable(.{
+        .name = "init",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("user/init.zig"),
+            .target = b.resolveTargetQuery(.{
+                .cpu_arch = .riscv64,
+                .os_tag = .freestanding,
+                .abi = .none,
+            }),
+            .optimize = .ReleaseSafe,
+            .code_model = .medium,
+        }),
+    });
+    init.setLinkerScript(b.path("user/user.ld"));
+
     const mkfs = b.addExecutable(.{
         .name = "mkfs",
         .root_module = b.createModule(.{
@@ -21,7 +36,8 @@ pub fn build(b: *std.Build) !void {
         });
     }
     const mkfs_run = b.addRunArtifact(mkfs);
-    mkfs_run.addArgs(&.{ "fs.img", "README.md" });
+    mkfs_run.addArg("fs.img");
+    mkfs_run.addArtifactArg(init);
     const mkfs_step = b.step("mkfs", "Build an initial file system");
     mkfs_step.dependOn(&mkfs_run.step);
 

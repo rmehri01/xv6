@@ -9,7 +9,9 @@ const memlayout = @import("memlayout.zig");
 const params = @import("params.zig");
 const riscv = @import("riscv.zig");
 const SpinLock = @import("sync/SpinLock.zig");
+const syscall = @import("syscall.zig");
 const trampoline = @import("trampoline.zig");
+const trap = @import("trap.zig");
 const vm = @import("vm.zig");
 
 var cpus: [params.MAX_CPUS]Cpu = undefined;
@@ -28,10 +30,11 @@ var procs: [params.MAX_PROCS]Process = init: {
             .private = .{
                 .kstack = vm.kStackVAddr(proc_num),
                 .size = 0,
-                .trapFrame = null,
-                .pageTable = null,
+                .trap_frame = null,
+                .page_table = null,
                 .context = null,
                 .cwd = null,
+                .name = .{0} ** 16,
             },
         };
     }
@@ -75,13 +78,15 @@ const Process = struct {
         /// Size of process memory (bytes)
         size: u64,
         /// Data page for trampoline.zig
-        trapFrame: ?*TrapFrame,
+        trap_frame: ?*TrapFrame,
         /// User page table.
-        pageTable: ?vm.PageTable(.user),
+        page_table: ?vm.PageTable(.user),
         /// ctxSwitch() here to run process
         context: ?Context,
         /// Current directory
         cwd: ?*fs.Inode,
+        /// Process name (debugging)
+        name: [16]u8,
     },
 
     /// Give up the CPU for one scheduling round.
@@ -118,9 +123,9 @@ const Process = struct {
             .state = .used,
         };
         // Allocate a trapframe page.
-        proc.private.trapFrame = try allocator.create(TrapFrame);
+        proc.private.trap_frame = try allocator.create(TrapFrame);
         // An empty user page table.
-        proc.private.pageTable = try createPageTable(allocator, proc);
+        proc.private.page_table = try createPageTable(allocator, proc);
 
         // Set up new context to start executing at forkret,
         // which returns to user space.
@@ -135,11 +140,11 @@ const Process = struct {
     /// Free a proc structure and the data hanging from it, including user pages.
     /// p.mutex must be held.
     fn free(self: *Process, allocator: Allocator) void {
-        if (self.private.trapFrame) |trapFrame| {
-            allocator.destroy(trapFrame);
+        if (self.private.trap_frame) |trap_frame| {
+            allocator.destroy(trap_frame);
         }
-        if (self.private.pageTable) |pageTable| {
-            Process.freePageTable(allocator, pageTable, self.private.size);
+        if (self.private.page_table) |page_table| {
+            freePageTable(allocator, page_table, self.private.size);
         }
 
         // TODO: others
@@ -147,16 +152,10 @@ const Process = struct {
         self.public.state = .unused;
         self.public.pid = null;
         self.private.size = 0;
-        self.private.trapFrame = null;
-        self.private.pageTable = null;
+        self.private.trap_frame = null;
+        self.private.page_table = null;
         self.private.context = null;
-    }
-
-    /// Free a process's page table, and free the physical memory it refers to.
-    fn freePageTable(allocator: Allocator, pageTable: vm.PageTable(.user), size: u64) void {
-        pageTable.unmap(null, memlayout.TRAMPOLINE, 1);
-        pageTable.unmap(null, memlayout.TRAP_FRAME, 1);
-        pageTable.free(allocator, size);
+        self.private.name = .{0} ** self.private.name.len;
     }
 };
 
@@ -260,32 +259,39 @@ pub fn userInit(allocator: Allocator) !void {
 
 /// Create a user page table for a given process, with no user memory,
 /// but with trampoline and trapframe pages.
-fn createPageTable(allocator: Allocator, proc: *Process) !vm.PageTable(.user) {
+pub fn createPageTable(allocator: Allocator, proc: *Process) !vm.PageTable(.user) {
     // An empty user page table.
-    var pageTable = try vm.PageTable(.user).init(allocator);
-    errdefer pageTable.free(allocator, 0);
+    var page_table = try vm.PageTable(.user).init(allocator);
+    errdefer page_table.free(allocator, 0);
 
     // Map the trampoline code (for system call return) at the highest user virtual address.
     // Only the supervisor uses it, on the way to/from user space, so not PTE_U.
-    try pageTable.mapPages(
+    try page_table.mapPages(
         allocator,
         memlayout.TRAMPOLINE,
         @intFromPtr(&trampoline.userVec),
         riscv.PAGE_SIZE,
         .{ .readable = true, .executable = true },
     );
-    errdefer pageTable.unmap(null, memlayout.TRAMPOLINE, 1);
+    errdefer page_table.unmap(null, memlayout.TRAMPOLINE, 1);
 
     // map the trapframe page just below the trampoline page, for trampoline.zig.
-    try pageTable.mapPages(
+    try page_table.mapPages(
         allocator,
         memlayout.TRAP_FRAME,
-        @intFromPtr(proc.private.trapFrame.?),
+        @intFromPtr(proc.private.trap_frame.?),
         riscv.PAGE_SIZE,
         .{ .readable = true, .writable = true },
     );
 
-    return pageTable;
+    return page_table;
+}
+
+/// Free a process's page table, and free the physical memory it refers to.
+pub fn freePageTable(allocator: Allocator, page_table: vm.PageTable(.user), size: u64) void {
+    page_table.unmap(null, memlayout.TRAMPOLINE, 1);
+    page_table.unmap(null, memlayout.TRAP_FRAME, 1);
+    page_table.free(allocator, size);
 }
 
 /// A fork child's very first scheduling by runScheduler() will switch to forkRet.
@@ -302,11 +308,19 @@ fn forkRet() void {
         fs.init(params.ROOT_DEV);
         first_proc.store(false, .release);
 
-        // TODO: exec
+        // We can invoke kexec() now that file system is initialized.
+        // Put the return value (argc) of kexec into a0.
+        proc.private.trap_frame.?.a0 = syscall.kexec("/init", &.{"/init"}) catch |err|
+            std.debug.panic("failed to exec init program: {}", .{err});
     }
 
-    // TODO: forkret
-    @panic("unimplemented");
+    // return to user space, mimicking userTrap()'s return.
+    trap.prepareReturn();
+
+    const satp = proc.private.page_table.?.makeSatp();
+    const trampoline_user_ret = memlayout.TRAMPOLINE +
+        (@intFromPtr(&trampoline.userRet) - @intFromPtr(&trampoline.userVec));
+    @as(*const fn (u64) void, @ptrFromInt(trampoline_user_ret))(satp);
 }
 
 /// Per-CPU process scheduler.
@@ -442,7 +456,7 @@ pub fn eitherCopyOut(dst: EitherAddr, src: []const u8) !void {
         .user => |dest| {
             const proc = myProc().?;
             assert(dest.len == src.len);
-            return proc.private.pageTable.?.copyOut(dest.addr, src);
+            return proc.private.page_table.?.copyOut(dest.addr, src);
         },
         .kernel => |dest| @memcpy(dest, src),
     }
@@ -454,7 +468,7 @@ pub fn eitherCopyIn(dst: []u8, src: EitherAddr) !void {
         .user => |source| {
             const proc = myProc().?;
             assert(source.len == dst.len);
-            return proc.private.pageTable.?.copyIn(dst, source.addr);
+            return proc.private.page_table.?.copyIn(dst, source.addr);
         },
         .kernel => |source| @memcpy(dst, source),
     }

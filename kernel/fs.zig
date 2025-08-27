@@ -349,7 +349,7 @@ pub const Inode = struct {
 
     /// Lock the given inode.
     /// Reads the inode from disk if necessary.
-    fn lock(self: *Inode) void {
+    pub fn lock(self: *Inode) void {
         assert(self.ref_count >= 1);
 
         self.mutex.lock();
@@ -367,7 +367,7 @@ pub const Inode = struct {
     }
 
     /// Common idiom: unlock, then put.
-    fn unlockPut(self: *Inode) void {
+    pub fn unlockPut(self: *Inode) void {
         self.unlock();
         self.put();
     }
@@ -469,7 +469,7 @@ pub const Inode = struct {
 
     /// Read data from inode.
     /// Caller must hold inode.mutex.
-    fn read(self: *Inode, dest: proc.EitherAddr, offset: u32) !u32 {
+    pub fn read(self: *Inode, dest: proc.EitherAddr, offset: u32) !u32 {
         const num = switch (dest) {
             .user => |dst| dst.len,
             .kernel => |dst| dst.len,
@@ -484,19 +484,18 @@ pub const Inode = struct {
         var bytes_read: u32 = 0;
         while (bytes_read < n) {
             const off = offset + bytes_read;
-            const dst: proc.EitherAddr = switch (dest) {
-                .user => |dst| .{
-                    .user = .{ .addr = dst.addr + bytes_read, .len = dst.len },
-                },
-                .kernel => |dst| .{ .kernel = dst[bytes_read..] },
-            };
-
             const block_num = try self.mapLogicalBlock(off / defs.BLOCK_SIZE);
             const buf = bcache.read(self.dev, block_num);
             defer buf.release();
 
             const bytes_to_read =
                 @min(n - bytes_read, defs.BLOCK_SIZE - off % defs.BLOCK_SIZE);
+            const dst: proc.EitherAddr = switch (dest) {
+                .user => |dst| .{
+                    .user = .{ .addr = dst.addr + bytes_read, .len = bytes_to_read },
+                },
+                .kernel => |dst| .{ .kernel = dst[bytes_read..][0..bytes_to_read] },
+            };
             try proc.eitherCopyOut(
                 dst,
                 buf.data[off % defs.BLOCK_SIZE ..][0..bytes_to_read],
@@ -523,19 +522,18 @@ pub const Inode = struct {
         var bytes_written: u32 = 0;
         while (bytes_written < num) {
             const off = offset + bytes_written;
-            const src: proc.EitherAddr = switch (source) {
-                .user => |src| .{
-                    .user = .{ .addr = src.addr + bytes_written, .len = src.len },
-                },
-                .kernel => |src| .{ .kernel = src[bytes_written..] },
-            };
-
             const block_num = try self.mapLogicalBlock(off / defs.BLOCK_SIZE);
             const buf = bcache.read(self.dev, block_num);
             defer buf.release();
 
             const bytes_to_write =
                 @min(num - bytes_written, defs.BLOCK_SIZE - off % defs.BLOCK_SIZE);
+            const src: proc.EitherAddr = switch (source) {
+                .user => |src| .{
+                    .user = .{ .addr = src.addr + bytes_written, .len = bytes_to_write },
+                },
+                .kernel => |src| .{ .kernel = src[bytes_written..][0..bytes_to_write] },
+            };
             try proc.eitherCopyIn(
                 buf.data[off % defs.BLOCK_SIZE ..][0..bytes_to_write],
                 src,
