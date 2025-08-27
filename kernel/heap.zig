@@ -1,3 +1,5 @@
+//! Memory allocation based on physical pages.
+
 const std = @import("std");
 const mem = std.mem;
 const assert = std.debug.assert;

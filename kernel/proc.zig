@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const fs = @import("fs.zig");
+const log = @import("fs/log.zig");
 const memlayout = @import("memlayout.zig");
 const params = @import("params.zig");
 const riscv = @import("riscv.zig");
@@ -25,6 +26,7 @@ var procs: [params.MAX_PROCS]Process = init: {
             .parent = null,
             .public = .{
                 .state = .unused,
+                .killed = false,
                 .pid = null,
             },
             .private = .{
@@ -68,6 +70,8 @@ const Process = struct {
     /// Process mutex must be held while using these.
     public: struct {
         state: ProcessState,
+        /// Has the process been killed?
+        killed: bool,
         /// Process ID.
         pid: ?Pid,
     },
@@ -98,6 +102,22 @@ const Process = struct {
         switchToScheduler();
     }
 
+    /// Checks if the process has been killed.
+    pub fn isKilled(self: *Process) bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        return self.public.killed;
+    }
+
+    /// Sets the process to be killed.
+    pub fn setKilled(self: *Process) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        self.public.killed = true;
+    }
+
     /// Look in the process table for an unused proc.
     /// If found, initialize state required to run in the kernel,
     /// and return with p.mutex held.
@@ -120,6 +140,7 @@ const Process = struct {
 
         proc.public = .{
             .pid = next_pid.fetchAdd(1, .acq_rel),
+            .killed = false,
             .state = .used,
         };
         // Allocate a trapframe page.
@@ -150,6 +171,7 @@ const Process = struct {
         // TODO: others
         self.parent = null;
         self.public.state = .unused;
+        self.public.killed = false;
         self.public.pid = null;
         self.private.size = 0;
         self.private.trap_frame = null;
@@ -169,7 +191,10 @@ const ProcessState = union(enum) {
     },
     runnable,
     running,
-    zombie,
+    zombie: struct {
+        /// Exit status to be returned to parent's wait.
+        exit_status: i32,
+    },
 };
 
 /// Per-process data for the trap handling code in trampoline.zig.
@@ -471,5 +496,52 @@ pub fn eitherCopyIn(dst: []u8, src: EitherAddr) !void {
             return proc.private.page_table.?.copyIn(dst, source.addr);
         },
         .kernel => |source| @memcpy(dst, source),
+    }
+}
+
+/// Exit the current process. Does not return.
+/// An exited process remains in the zombie state
+/// until its parent calls wait().
+pub fn exit(status: i32) noreturn {
+    const proc = myProc().?;
+    if (proc == initProc) {
+        @panic("init exiting");
+    }
+
+    // Close all open files.
+    // TODO: close open files
+
+    log.beginOp();
+    proc.private.cwd.?.put();
+    log.endOp();
+
+    // TODO: wait
+    proc.public.state = .{ .zombie = .{ .exit_status = status } };
+
+    // Jump into the scheduler, never to return.
+    switchToScheduler();
+    @panic("zombie exit");
+}
+
+/// Kill the process with the given pid.
+/// The victim won't exit until it tries to return
+/// to user space (see userTrap() in trap.zig).
+pub fn kill(pid: Pid) !void {
+    for (&procs) |*proc| {
+        proc.mutex.lock();
+        defer proc.mutex.unlock();
+
+        if (proc.public.pid == pid) {
+            proc.public.killed = true;
+
+            // Wake process from sleep().
+            if (proc.public.state == .sleeping) {
+                proc.public.state = .runnable;
+            }
+
+            return;
+        }
+    } else {
+        return error.ProcessNotFound;
     }
 }

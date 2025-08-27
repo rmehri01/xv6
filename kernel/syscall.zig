@@ -1,7 +1,11 @@
+//! System calls, the main interface for user programs to request the OS to perform
+//! some service.
+
 const std = @import("std");
 const assert = std.debug.assert;
 const elf = std.elf;
 
+const fmt = @import("fmt.zig");
 const fs = @import("fs.zig");
 const log = @import("fs/log.zig");
 const heap = @import("heap.zig");
@@ -9,6 +13,94 @@ const params = @import("params.zig");
 const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
 const vm = @import("vm.zig");
+const sys_proc = @import("syscall/proc.zig");
+
+/// System call number.
+const Num = enum(u64) {
+    fork = 1,
+    exit = 2,
+    wait = 3,
+    pipe = 4,
+    read = 5,
+    kill = 6,
+    exec = 7,
+    fstat = 8,
+    chdir = 9,
+    dup = 10,
+    getpid = 11,
+    sbrk = 12,
+    pause = 13,
+    uptime = 14,
+    open = 15,
+    write = 16,
+    mknod = 17,
+    unlink = 18,
+    link = 19,
+    mkdir = 20,
+    close = 21,
+};
+
+/// Main logic for handling a syscall.
+pub fn handle() void {
+    const p = proc.myProc().?;
+    const trap_frame = p.private.trap_frame.?;
+
+    const num = trap_frame.a7;
+    if (std.enums.fromInt(Num, num)) |sys_num| {
+        // Use num to lookup the system call function for num, call it,
+        // and store its return value in p.private.trap_frame.a0
+        trap_frame.a0 = switch (sys_num) {
+            .fork => @panic("todo"),
+            .exit => @panic("todo"),
+            .wait => @panic("todo"),
+            .pipe => @panic("todo"),
+            .read => @panic("todo"),
+            .kill => sys_proc.kill(),
+            .exec => @panic("todo"),
+            .fstat => @panic("todo"),
+            .chdir => @panic("todo"),
+            .dup => @panic("todo"),
+            .getpid => @panic("todo"),
+            .sbrk => @panic("todo"),
+            .pause => @panic("todo"),
+            .uptime => @panic("todo"),
+            .open => @panic("todo"),
+            .write => @panic("todo"),
+            .mknod => @panic("todo"),
+            .unlink => @panic("todo"),
+            .link => @panic("todo"),
+            .mkdir => @panic("todo"),
+            .close => @panic("todo"),
+        };
+    } else {
+        fmt.println(
+            "{d} {s}: unknown sys call {d}",
+            .{ p.public.pid.?, p.private.name, num },
+        );
+        trap_frame.a0 = std.math.maxInt(u64);
+    }
+}
+
+// Fetch the nth 32-bit system call argument.
+pub fn intArg(n: u32) u32 {
+    return @intCast(rawArg(n));
+}
+
+/// Fetch the nth system call argument as a raw 64-bit integer.
+fn rawArg(n: u32) u64 {
+    const p = proc.myProc().?;
+    const trap_frame = p.private.trap_frame.?;
+
+    return switch (n) {
+        0 => trap_frame.a0,
+        1 => trap_frame.a1,
+        2 => trap_frame.a2,
+        3 => trap_frame.a3,
+        4 => trap_frame.a4,
+        5 => trap_frame.a5,
+        else => std.debug.panic("invalid raw arg num: {d}", .{n}),
+    };
+}
 
 /// The implementation of the exec() system call.
 pub fn kexec(path: []const u8, argv: []const [:0]const u8) !u64 {

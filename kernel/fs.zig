@@ -396,7 +396,7 @@ pub const Inode = struct {
     /// to it, free the inode (and its content) on disk.
     /// All calls to put() must be inside a transaction in
     /// case it has to free the inode.
-    fn put(self: *Inode) void {
+    pub fn put(self: *Inode) void {
         itable.mutex.lock();
         defer itable.mutex.unlock();
 

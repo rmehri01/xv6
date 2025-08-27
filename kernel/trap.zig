@@ -11,6 +11,7 @@ const params = @import("params.zig");
 const plic = @import("plic.zig");
 const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
+const syscall = @import("syscall.zig");
 const uart = @import("uart.zig");
 
 var ticks: std.atomic.Value(usize) = .init(0);
@@ -215,7 +216,19 @@ fn userTrap() u64 {
 
     const scause = riscv.csrr(.scause);
     if (scause == 8) {
-        @panic("syscall unimplemented");
+        // system call
+
+        if (p.isKilled())
+            proc.exit(-1);
+
+        // sepc points to the ecall instruction,
+        // but we want to return to the next instruction.
+        p.private.trap_frame.?.epc += 4;
+
+        // an interrupt will change sepc, scause, and sstatus,
+        // so enable only now that we're done with those registers.
+        riscv.intrOn();
+        syscall.handle();
     } else if (handleDevIntr() != .unknown) {
         // ok
     } else if ((scause == 15 or scause == 13) and
@@ -227,10 +240,11 @@ fn userTrap() u64 {
             "unexpected user trap: scause=0x{x} pid={d} sepc=0x{x:0>16} stval=0x{x}",
             .{ scause, p.public.pid.?, riscv.csrr(.sepc), riscv.csrr(.stval) },
         );
-        // TODO: kill
+        p.setKilled();
     }
 
-    // TODO: kill
+    if (p.isKilled())
+        proc.exit(-1);
     // TODO: yield
 
     prepareReturn();
