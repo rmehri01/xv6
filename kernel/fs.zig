@@ -373,7 +373,7 @@ pub const Inode = struct {
     }
 
     /// Unlock the given inode.
-    fn unlock(self: *Inode) void {
+    pub fn unlock(self: *Inode) void {
         assert(self.mutex.holding());
         assert(self.ref_count >= 1);
 
@@ -469,7 +469,7 @@ pub const Inode = struct {
 
     /// Read data from inode.
     /// Caller must hold inode.mutex.
-    pub fn read(self: *Inode, dest: proc.EitherAddr, offset: u32) !u32 {
+    pub fn read(self: *Inode, dest: proc.EitherMem, offset: u32) !u32 {
         const num = switch (dest) {
             .user => |dst| dst.len,
             .kernel => |dst| dst.len,
@@ -490,7 +490,7 @@ pub const Inode = struct {
 
             const bytes_to_read =
                 @min(n - bytes_read, defs.BLOCK_SIZE - off % defs.BLOCK_SIZE);
-            const dst: proc.EitherAddr = switch (dest) {
+            const dst: proc.EitherMem = switch (dest) {
                 .user => |dst| .{
                     .user = .{ .addr = dst.addr + bytes_read, .len = bytes_to_read },
                 },
@@ -509,7 +509,7 @@ pub const Inode = struct {
     /// Write data to inode.
     /// Caller must hold inode.mutex.
     /// Returns the number of bytes successfully written.
-    fn write(self: *Inode, source: proc.EitherAddr, offset: u32) !u32 {
+    fn write(self: *Inode, source: proc.EitherMem, offset: u32) !u32 {
         const num = switch (source) {
             .user => |src| src.len,
             .kernel => |src| src.len,
@@ -528,7 +528,7 @@ pub const Inode = struct {
 
             const bytes_to_write =
                 @min(num - bytes_written, defs.BLOCK_SIZE - off % defs.BLOCK_SIZE);
-            const src: proc.EitherAddr = switch (source) {
+            const src: proc.EitherMem = switch (source) {
                 .user => |src| .{
                     .user = .{ .addr = src.addr + bytes_written, .len = bytes_to_write },
                 },

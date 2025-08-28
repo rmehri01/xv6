@@ -169,7 +169,7 @@ pub fn prepareReturn() void {
     // code to userTrap would be a disaster, turn off interrupts.
     riscv.intrOff();
 
-    // Send syscalls, interrupts, and exceptions to userVec in trampoline.zig
+    // Send syscalls, interrupts, and exceptions to userVec in trampoline.S
     const trampoline_user_vec = memlayout.TRAMPOLINE;
     riscv.csrw(.stvec, trampoline_user_vec);
 
@@ -184,7 +184,7 @@ pub fn prepareReturn() void {
     // hartid for cpuid()
     trap_frame.kernel_hartid = riscv.read(.tp);
 
-    // Set up the registers that trampoline.zig's sret will use
+    // Set up the registers that trampoline.S's sret will use
     // to get to user space.
 
     // Set S Previous Privilege mode to User.
@@ -200,8 +200,8 @@ pub fn prepareReturn() void {
 }
 
 /// Handle an interrupt, exception, or system call from user space.
-/// called from, and returns to, trampoline.zig.
-/// Return value is user satp for trampoline.zig to switch to.
+/// called from, and returns to, trampoline.S.
+/// Return value is user satp for trampoline.S to switch to.
 fn userTrap() u64 {
     assert(riscv.csrr(.sstatus) & riscv.SSTATUS_SPP == 0);
 
@@ -249,7 +249,7 @@ fn userTrap() u64 {
 
     prepareReturn();
 
-    // The user page table to switch to, for trampoline.zig
+    // The user page table to switch to, for trampoline.S
     const satp = p.private.page_table.?.makeSatp();
     // Return to trampoline.S; satp value in a0.
     return satp;

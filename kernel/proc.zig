@@ -5,15 +5,19 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const fs = @import("fs.zig");
+const file = @import("fs/file.zig");
 const log = @import("fs/log.zig");
 const memlayout = @import("memlayout.zig");
 const params = @import("params.zig");
 const riscv = @import("riscv.zig");
 const SpinLock = @import("sync/SpinLock.zig");
 const syscall = @import("syscall.zig");
-const trampoline = @import("trampoline.zig");
 const trap = @import("trap.zig");
 const vm = @import("vm.zig");
+
+// trampoline.S
+extern const trampoline: opaque {};
+extern const userRet: opaque {};
 
 var cpus: [params.MAX_CPUS]Cpu = undefined;
 var initProc: *Process = undefined;
@@ -35,6 +39,7 @@ var procs: [params.MAX_PROCS]Process = init: {
                 .trap_frame = null,
                 .page_table = null,
                 .context = null,
+                .open_files = .{null} ** params.NUM_FILE_PER_PROC,
                 .cwd = null,
                 .name = .{0} ** 16,
             },
@@ -81,7 +86,7 @@ const Process = struct {
         kstack: u64,
         /// Size of process memory (bytes)
         size: u64,
-        /// Data page for trampoline.zig
+        /// Data page for trampoline.S
         trap_frame: ?*TrapFrame,
         /// User page table.
         page_table: ?vm.PageTable(.user),
@@ -89,6 +94,8 @@ const Process = struct {
         context: ?Context,
         /// Current directory
         cwd: ?*fs.Inode,
+        /// Open files
+        open_files: [params.NUM_FILE_PER_PROC]?*file.File,
         /// Process name (debugging)
         name: [16]u8,
     },
@@ -197,13 +204,13 @@ const ProcessState = union(enum) {
     },
 };
 
-/// Per-process data for the trap handling code in trampoline.zig.
+/// Per-process data for the trap handling code in trampoline.S.
 /// Sits in a page by itself just under the trampoline page in the
 /// user page table. Not specially mapped in the kernel page table.
-/// userVec in trampoline.zig saves user registers in the trapframe,
+/// userVec in trampoline.S saves user registers in the trapframe,
 /// then initializes registers from the trapframe's
 /// kernel_sp, kernel_hartid, kernel_satp, and jumps to kernelTrap.
-/// userTrapRet() and userRet in trampoline.zig set up
+/// userTrapRet() and userRet in trampoline.S set up
 /// the trapframe's kernel_*, restore user registers from the
 /// trapframe, switch to the user page table, and enter user space.
 /// The trapframe includes callee-saved user registers like s0-s11 because the
@@ -294,13 +301,13 @@ pub fn createPageTable(allocator: Allocator, proc: *Process) !vm.PageTable(.user
     try page_table.mapPages(
         allocator,
         memlayout.TRAMPOLINE,
-        @intFromPtr(&trampoline.userVec),
+        @intFromPtr(&trampoline),
         riscv.PAGE_SIZE,
         .{ .readable = true, .executable = true },
     );
     errdefer page_table.unmap(null, memlayout.TRAMPOLINE, 1);
 
-    // map the trapframe page just below the trampoline page, for trampoline.zig.
+    // map the trapframe page just below the trampoline page, for trampoline.S.
     try page_table.mapPages(
         allocator,
         memlayout.TRAP_FRAME,
@@ -344,7 +351,7 @@ fn forkRet() void {
 
     const satp = proc.private.page_table.?.makeSatp();
     const trampoline_user_ret = memlayout.TRAMPOLINE +
-        (@intFromPtr(&trampoline.userRet) - @intFromPtr(&trampoline.userVec));
+        (@intFromPtr(&userRet) - @intFromPtr(&trampoline));
     @as(*const fn (u64) void, @ptrFromInt(trampoline_user_ret))(satp);
 }
 
@@ -469,14 +476,14 @@ pub fn wakeUp(chan: usize) void {
     }
 }
 
-/// Either a user or kernel address.
-pub const EitherAddr = union(enum) {
+/// Either a user or kernel piece of memory.
+pub const EitherMem = union(enum) {
     user: struct { addr: u64, len: u64 },
     kernel: []u8,
 };
 
 /// Copy to either a user address, or kernel address, depending on dst.
-pub fn eitherCopyOut(dst: EitherAddr, src: []const u8) !void {
+pub fn eitherCopyOut(dst: EitherMem, src: []const u8) !void {
     switch (dst) {
         .user => |dest| {
             const proc = myProc().?;
@@ -488,7 +495,7 @@ pub fn eitherCopyOut(dst: EitherAddr, src: []const u8) !void {
 }
 
 /// Copy from either a user address, or kernel address, depending on src.
-pub fn eitherCopyIn(dst: []u8, src: EitherAddr) !void {
+pub fn eitherCopyIn(dst: []u8, src: EitherMem) !void {
     switch (src) {
         .user => |source| {
             const proc = myProc().?;
@@ -509,7 +516,12 @@ pub fn exit(status: i32) noreturn {
     }
 
     // Close all open files.
-    // TODO: close open files
+    for (0.., proc.private.open_files) |fd, maybe_file| {
+        if (maybe_file) |f| {
+            f.close();
+            proc.private.open_files[fd] = null;
+        }
+    }
 
     log.beginOp();
     proc.private.cwd.?.put();

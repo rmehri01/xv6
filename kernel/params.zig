@@ -19,6 +19,12 @@ pub const TIMER_INTERVAL = 1000000;
 
 /// Device number of file system root disk.
 pub const ROOT_DEV = 1;
+/// Maximum major device number.
+pub const NUM_DEV = 10;
+/// Open files per system.
+pub const NUM_FILE = 100;
+/// Open files per process.
+pub const NUM_FILE_PER_PROC = 16;
 /// Maximum number of active i-nodes.
 pub const NUM_INODE = 50;
 /// Size of disk block cache.

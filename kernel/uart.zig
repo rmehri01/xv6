@@ -3,6 +3,7 @@
 const std = @import("std");
 
 const memlayout = @import("memlayout.zig");
+const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
 const SpinLock = @import("sync/SpinLock.zig");
 
@@ -25,6 +26,19 @@ const LCR_EIGHT_BITS = 3 << 0;
 const LSR_RX_READY = 1 << 0;
 /// THR can accept another character to send
 const LSR_TX_IDLE = 1 << 5;
+
+// for transmission.
+var tx: struct {
+    mutex: SpinLock,
+    /// Is the UART busy sending?
+    busy: bool,
+    /// &chan is the "wait channel"
+    chan: void,
+} = .{
+    .mutex = .{},
+    .busy = false,
+    .chan = {},
+};
 
 pub fn init() void {
     // disable interrupts.
@@ -50,11 +64,42 @@ pub fn init() void {
     writeReg(.ier, IER_TX_ENABLE | IER_RX_ENABLE);
 }
 
+/// Transmit buf to the uart. It blocks if the
+/// uart is busy, so it cannot be called from
+/// interrupts, only from write() system calls.
+pub fn write(buf: []const u8) void {
+    tx.mutex.lock();
+    defer tx.mutex.unlock();
+
+    for (buf) |char| {
+        while (tx.busy) {
+            proc.sleep(@intFromPtr(&tx.chan), &tx.mutex);
+        }
+
+        writeReg(.thr, char);
+        tx.busy = true;
+    }
+}
+
 /// Handle a UART interrupt, raised because input has
 /// arrived, or the uart is ready for more output, or
-/// both. called from handleDevIntr().
+/// both. Called from handleDevIntr().
 pub fn handleIntr() void {
-    // TODO: uart interrupt
+    // acknowledge the interrupt
+    _ = readReg(.isr);
+
+    {
+        tx.mutex.lock();
+        defer tx.mutex.unlock();
+
+        if (readReg(.lsr) & LSR_TX_IDLE != 0) {
+            // UART finished transmitting; wake up sending thread.
+            tx.busy = false;
+            proc.wakeUp(@intFromPtr(&tx.chan));
+        }
+    }
+
+    // TODO: incoming chars
 }
 
 /// Try to read one input character from the UART, returning null if none is waiting.

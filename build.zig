@@ -36,7 +36,7 @@ pub fn build(b: *std.Build) !void {
         });
     }
     const mkfs_run = b.addRunArtifact(mkfs);
-    mkfs_run.addArg("fs.img");
+    mkfs_run.addArgs(&.{ "fs.img", "README.md" });
     mkfs_run.addArtifactArg(init);
     const mkfs_step = b.step("mkfs", "Build an initial file system");
     mkfs_step.dependOn(&mkfs_run.step);
@@ -56,6 +56,7 @@ pub fn build(b: *std.Build) !void {
     });
     kernel.setLinkerScript(b.path("kernel/kernel.ld"));
     kernel.addAssemblyFile(b.path("kernel/entry.S"));
+    kernel.addAssemblyFile(b.path("kernel/trampoline.S"));
     kernel.addAssemblyFile(b.path("kernel/ctxSwitch.S"));
     b.installArtifact(kernel);
 

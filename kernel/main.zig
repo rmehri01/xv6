@@ -5,6 +5,7 @@ const std = @import("std");
 
 const fmt = @import("fmt.zig");
 const bcache = @import("fs/bcache.zig");
+const file = @import("fs/file.zig");
 const virtio = @import("fs/virtio.zig");
 const heap = @import("heap.zig");
 const plic = @import("plic.zig");
@@ -65,6 +66,8 @@ pub fn kmain() noreturn {
             std.debug.panic("failed to initialize virtio: {}", .{err});
         // buffer cache
         bcache.init();
+        // file table
+        file.init();
 
         // first user process
         proc.userInit(heap.page_allocator) catch |err|

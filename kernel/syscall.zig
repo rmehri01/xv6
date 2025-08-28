@@ -65,14 +65,14 @@ pub fn handle() void {
             .sbrk => @panic("todo"),
             .pause => @panic("todo"),
             .uptime => @panic("todo"),
-            .open => @panic("todo"),
-            .write => @panic("todo"),
+            .open => sys_fs.open(),
+            .write => sys_fs.write(),
             .mknod => sys_fs.mknod(),
             .unlink => @panic("todo"),
             .link => @panic("todo"),
             .mkdir => @panic("todo"),
             .close => @panic("todo"),
-        };
+        } catch std.math.maxInt(u64);
     } else {
         fmt.println(
             "{d} {s}: unknown sys call {d}",

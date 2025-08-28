@@ -9,10 +9,11 @@ const fmt = @import("fmt.zig");
 const memlayout = @import("memlayout.zig");
 const params = @import("params.zig");
 const riscv = @import("riscv.zig");
-const trampoline = @import("trampoline.zig");
 
 /// kernel.ld sets this to end of kernel code.
 extern const etext: opaque {};
+// trampoline.S
+extern const trampoline: opaque {};
 
 /// Number of page table entries.
 const PTES = riscv.PAGE_SIZE / @sizeOf(PageTableEntry);
@@ -81,7 +82,7 @@ pub fn init(allocator: Allocator) !void {
     try init_pt.kmap(
         allocator,
         memlayout.TRAMPOLINE,
-        @intFromPtr(&trampoline.userVec),
+        @intFromPtr(&trampoline),
         riscv.PAGE_SIZE,
         .{ .readable = true, .executable = true },
     );
@@ -238,11 +239,24 @@ pub fn PageTable(kind: PageTableKind) type {
         /// Copy len bytes to dst from virtual address srcva in a given page table.
         pub fn copyIn(self: @This(), dst: []u8, src: u64) !void {
             comptime assert(kind == .user);
-            // TODO: implement
-            _ = self;
-            _ = dst;
-            _ = src;
-            @panic("copyIn unimplemented");
+
+            var dest = dst;
+            var src_va = src;
+
+            while (dest.len > 0) {
+                const va = riscv.pageRoundDown(src_va);
+                const pa = self.walkAddr(va) catch
+                    try self.handleFault(va);
+
+                var n = riscv.PAGE_SIZE - (src_va - va);
+                if (n > dest.len)
+                    n = dest.len;
+
+                @memcpy(dest[0..n], @as([*]u8, @ptrFromInt(pa + (src_va - va))));
+
+                dest = dest[n..];
+                src_va = va + riscv.PAGE_SIZE;
+            }
         }
 
         /// Copy a null-terminated string from user to kernel.
