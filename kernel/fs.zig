@@ -1,4 +1,4 @@
-//! File system implementation.  Five layers:
+//! File system implementation. Five layers:
 //!   + Blocks: allocator for raw disk blocks.
 //!   + Log: crash recovery for multi-step updates.
 //!   + Files: inode allocator, reading, writing, metadata.
@@ -7,7 +7,7 @@
 //!
 //! This file contains the low-level file system manipulation
 //! routines. The (higher-level) system call implementations
-//! are in sysfile.zig.
+//! are in syscall/fs.zig.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -49,9 +49,9 @@ pub fn lookupPath(path: []const u8) !*Inode {
     return inode;
 }
 
-/// Look up and return the parent inode and name for a path name.
+/// Look up and return the parent inode and last path name for a path name.
 /// Must be called inside a transaction since it calls put().
-fn lookupParent(path: []const u8) !struct { *Inode, []const u8 } {
+pub fn lookupParent(path: []const u8) !struct { *Inode, []const u8 } {
     return try lookupPathImpl(path, true);
 }
 
@@ -94,7 +94,7 @@ fn lookupPathImpl(path: []const u8, parent: bool) !struct { *Inode, []const u8 }
 
 /// Look for a directory entry in a directory.
 /// If found, return the corresponding inode and it's byte offset.
-fn lookupDir(dir_inode: *Inode, name: []const u8) ?struct { *Inode, u32 } {
+pub fn lookupDir(dir_inode: *Inode, name: []const u8) ?struct { *Inode, u32 } {
     assert(dir_inode.dinode.type == @intFromEnum(defs.FileType.dir));
 
     var off: u32 = 0;
@@ -119,7 +119,7 @@ fn lookupDir(dir_inode: *Inode, name: []const u8) ?struct { *Inode, u32 } {
 }
 
 /// Write a new directory entry (name, inum) into the directory.
-fn linkDir(dir_inode: *Inode, name: []const u8, inum: u16) !void {
+pub fn linkDir(dir_inode: *Inode, name: []const u8, inum: u16) !void {
     assert(dir_inode.dinode.type == @intFromEnum(defs.FileType.dir));
 
     // Check that name is not present.
@@ -250,7 +250,7 @@ var itable: struct {
 /// Mark it as allocated by giving it type ty.
 /// Returns an unlocked but allocated and referenced inode,
 /// or an error if there is no free inode.
-fn allocInode(dev: u32, ty: defs.FileType) !*Inode {
+pub fn allocInode(dev: u32, ty: defs.FileType) !*Inode {
     for (defs.ROOT_INUM..sb.num_inodes) |idx| {
         const inum: u32 = @intCast(idx);
         const buf = bcache.read(dev, sb.inodeBlock(inum));
@@ -456,7 +456,7 @@ pub const Inode = struct {
     /// Copy a modified in-memory inode to disk.
     /// Must be called after every change to an inode field that lives on disk.
     /// Caller must hold inode.mutex.
-    fn update(self: *Inode) void {
+    pub fn update(self: *Inode) void {
         const buf = bcache.read(self.dev, sb.inodeBlock(self.inum));
         defer buf.release();
 

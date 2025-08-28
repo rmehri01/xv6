@@ -245,6 +245,42 @@ pub fn PageTable(kind: PageTableKind) type {
             @panic("copyIn unimplemented");
         }
 
+        /// Copy a null-terminated string from user to kernel.
+        /// Copy bytes to dst from virtual address src_addr in a given page table,
+        /// until a '\0', or dst.len.
+        /// Return length of string on success or an error.
+        pub fn copyInStr(self: @This(), dst: [:0]u8, src_addr: u64) !usize {
+            var dest = dst;
+            var src_va = src_addr;
+
+            while (dest.len > 0) {
+                const va = riscv.pageRoundDown(src_va);
+                const pa = try self.walkAddr(va);
+
+                var n = riscv.PAGE_SIZE - (src_va - va);
+                if (n > dest.len)
+                    n = dest.len;
+
+                var src: [*]u8 = @ptrFromInt(pa + (src_va - va));
+                while (n > 0) {
+                    if (src[0] == 0) {
+                        dest[0] = 0;
+                        return dst.len - dest.len;
+                    } else {
+                        dest[0] = src[0];
+                    }
+
+                    n -= 1;
+                    src = src[1..];
+                    dest = dest[1..];
+                }
+
+                src_va = va + riscv.PAGE_SIZE;
+            } else {
+                return error.NotNulTerminated;
+            }
+        }
+
         /// Allocate and map user memory if process is referencing a page
         /// that was lazily allocated in sbrk().
         /// Returns an error if va is invalid or already mapped, or if

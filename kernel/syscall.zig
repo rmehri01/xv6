@@ -14,6 +14,7 @@ const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
 const vm = @import("vm.zig");
 const sys_proc = @import("syscall/proc.zig");
+const sys_fs = @import("syscall/fs.zig");
 
 /// System call number.
 const Num = enum(u64) {
@@ -66,7 +67,7 @@ pub fn handle() void {
             .uptime => @panic("todo"),
             .open => @panic("todo"),
             .write => @panic("todo"),
-            .mknod => @panic("todo"),
+            .mknod => sys_fs.mknod(),
             .unlink => @panic("todo"),
             .link => @panic("todo"),
             .mkdir => @panic("todo"),
@@ -81,13 +82,21 @@ pub fn handle() void {
     }
 }
 
-// Fetch the nth 32-bit system call argument.
+/// Fetch the nth 32-bit system call argument.
 pub fn intArg(n: u32) u32 {
     return @intCast(rawArg(n));
 }
 
+/// Fetch the nth word-sized system call argument as a string.
+/// Copies into buf, at most buf.len.
+/// Returns string length if OK or error.
+pub fn strArg(n: u32, dst: [:0]u8) !usize {
+    const addr = rawArg(n);
+    return try fetchStr(dst, addr);
+}
+
 /// Fetch the nth system call argument as a raw 64-bit integer.
-fn rawArg(n: u32) u64 {
+pub fn rawArg(n: u32) u64 {
     const p = proc.myProc().?;
     const trap_frame = p.private.trap_frame.?;
 
@@ -100,6 +109,13 @@ fn rawArg(n: u32) u64 {
         5 => trap_frame.a5,
         else => std.debug.panic("invalid raw arg num: {d}", .{n}),
     };
+}
+
+/// Fetch the nul-terminated string at addr from the current process.
+/// Returns length of string or an error.
+fn fetchStr(dst: [:0]u8, src_addr: u64) !usize {
+    const p = proc.myProc().?;
+    return try p.private.page_table.?.copyInStr(dst, src_addr);
 }
 
 /// The implementation of the exec() system call.

@@ -29,3 +29,5 @@ pub const LOG_BLOCKS = MAX_OP_BLOCKS * 3;
 pub const MAX_OP_BLOCKS = 10;
 /// Size of file system in blocks.
 pub const FS_SIZE = 2000;
+/// Maximum file path name length.
+pub const MAX_PATH = 128;
