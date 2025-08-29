@@ -70,9 +70,19 @@ pub const File = struct {
         },
     },
 
+    /// Increment ref count for this file.
+    pub fn dup(self: *File) *File {
+        ftable.mutex.lock();
+        defer ftable.mutex.unlock();
+
+        assert(self.ref_count != 0);
+        self.ref_count += 1;
+        return self;
+    }
+
     /// Write to this file.
     /// addr is a user virtual address.
-    pub fn write(self: *@This(), addr: u64, len: u32) !u64 {
+    pub fn write(self: *File, addr: u64, len: u32) !u64 {
         if (!self.writable)
             return error.NotWritable;
 
@@ -89,7 +99,7 @@ pub const File = struct {
     }
 
     /// Close this file. (Decrement ref count, close when reaches 0.)
-    pub fn close(self: *@This()) void {
+    pub fn close(self: *File) void {
         const file = value: {
             ftable.mutex.lock();
             defer ftable.mutex.unlock();

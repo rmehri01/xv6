@@ -8,6 +8,7 @@ const ERR_VALUE = std.math.maxInt(u64);
 
 extern fn mknodSys([*:0]const u8, u32, u32) u64;
 extern fn openSys([*:0]const u8, u32) u64;
+extern fn dupSys(u32) u64;
 extern fn writeSys(u32, [*]const u8, u64) u64;
 
 comptime {
@@ -35,6 +36,13 @@ pub fn open(name: [:0]const u8, mode: u32) !u32 {
         return error.SyscallFailed;
     }
     return @intCast(ret);
+}
+
+pub fn dup(fd: u32) !void {
+    const ret = dupSys(fd);
+    if (ret == ERR_VALUE) {
+        return error.SyscallFailed;
+    }
 }
 
 pub fn write(fd: u32, buf: []const u8) !u64 {

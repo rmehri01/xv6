@@ -2,8 +2,10 @@
 
 const std = @import("std");
 
-const syscall = @import("syscall.zig");
 const file = @import("shared").file;
+
+const fmt = @import("fmt.zig");
+const syscall = @import("syscall.zig");
 
 export fn _start() void {
     // TODO: printf error?
@@ -16,7 +18,13 @@ fn main() !void {
         break :value syscall.open("console", file.OpenMode.READ_WRITE) catch
             @panic("failed to open console node");
     };
-    _ = try syscall.write(fd, "hello from userspace!\n");
+
+    // stdout
+    try syscall.dup(fd);
+    // stderr
+    try syscall.dup(fd);
+
+    fmt.println("hello from userspace!", .{});
 
     while (true) {}
 }

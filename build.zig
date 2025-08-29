@@ -23,6 +23,7 @@ pub fn build(b: *std.Build) !void {
             .target = riscv_target,
             .optimize = .ReleaseSafe,
             .code_model = .medium,
+            .strip = true,
         }),
     });
     init.setLinkerScript(b.path("user/user.ld"));

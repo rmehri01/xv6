@@ -88,6 +88,13 @@ pub fn open() !u64 {
     return fd;
 }
 
+pub fn dup() !u64 {
+    _, const f = try fdArg(0);
+    const fd = try allocFd(f);
+    _ = f.dup();
+    return fd;
+}
+
 pub fn write() !u64 {
     _, const f = try fdArg(0);
     const addr = syscall.rawArg(1);
