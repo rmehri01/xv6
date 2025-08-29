@@ -2,11 +2,14 @@
 //! Mostly argument checking, since we don't trust
 //! user code, and calls into fs/file.zig and fs.zig.
 
+const shared = @import("shared");
+const defs = shared.fs;
+const params = shared.params;
+const OpenMode = shared.file.OpenMode;
+
 const fs = @import("../fs.zig");
-const defs = @import("../fs/defs.zig");
 const file = @import("../fs/file.zig");
 const log = @import("../fs/log.zig");
-const params = @import("../params.zig");
 const proc = @import("../proc.zig");
 const syscall = @import("../syscall.zig");
 
@@ -37,14 +40,14 @@ pub fn open() !u64 {
     defer log.endOp();
 
     const inode = value: {
-        if (mode & defs.OpenMode.CREATE != 0) {
+        if (mode & OpenMode.CREATE != 0) {
             @panic("todo create");
         } else {
             const inode = try fs.lookupPath(path[0..path_len]);
             inode.lock();
 
             if (inode.dinode.type == @intFromEnum(defs.FileType.dir) and
-                mode != defs.OpenMode.READ_ONLY)
+                mode != OpenMode.READ_ONLY)
             {
                 inode.unlockPut();
                 return error.InvalidMode;
@@ -75,9 +78,9 @@ pub fn open() !u64 {
     } else {
         @panic("todo open file");
     }
-    f.readable = mode & defs.OpenMode.WRITE_ONLY == 0;
-    f.writable = (mode & defs.OpenMode.WRITE_ONLY != 0) or
-        (mode & defs.OpenMode.READ_WRITE != 0);
+    f.readable = mode & OpenMode.WRITE_ONLY == 0;
+    f.writable = (mode & OpenMode.WRITE_ONLY != 0) or
+        (mode & OpenMode.READ_WRITE != 0);
 
     // TODO: handle trunc
 

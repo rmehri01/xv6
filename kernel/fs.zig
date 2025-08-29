@@ -12,11 +12,12 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const defs = @import("shared").fs;
+const params = @import("shared").params;
+
 const fmt = @import("fmt.zig");
 const bcache = @import("fs/bcache.zig");
-const defs = @import("fs/defs.zig");
 const log = @import("fs/log.zig");
-const params = @import("params.zig");
 const proc = @import("proc.zig");
 const SleepLock = @import("sync/SleepLock.zig");
 const SpinLock = @import("sync/SpinLock.zig");

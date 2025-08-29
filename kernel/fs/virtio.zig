@@ -9,7 +9,7 @@ const memlayout = @import("../memlayout.zig");
 const proc = @import("../proc.zig");
 const SpinLock = @import("../sync/SpinLock.zig");
 const bcache = @import("bcache.zig");
-const defs = @import("defs.zig");
+const defs = @import("shared").fs;
 
 /// Virtio mmio control registers, mapped starting at 0x10001000.
 /// From qemu virtio_mmio.h

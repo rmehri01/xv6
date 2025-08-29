@@ -2,22 +2,31 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
+    const riscv_target = b.resolveTargetQuery(.{
+        .cpu_arch = .riscv64,
+        .os_tag = .freestanding,
+        .abi = .none,
+    });
     const optimize = b.standardOptimizeOption(.{});
+
+    const shared = b.addModule("shared", .{
+        .root_source_file = b.path("shared/root.zig"),
+        .target = riscv_target,
+        .optimize = optimize,
+        .code_model = .medium,
+    });
 
     const init = b.addExecutable(.{
         .name = "init",
         .root_module = b.createModule(.{
             .root_source_file = b.path("user/init.zig"),
-            .target = b.resolveTargetQuery(.{
-                .cpu_arch = .riscv64,
-                .os_tag = .freestanding,
-                .abi = .none,
-            }),
+            .target = riscv_target,
             .optimize = .ReleaseSafe,
             .code_model = .medium,
         }),
     });
     init.setLinkerScript(b.path("user/user.ld"));
+    init.root_module.addImport("shared", shared);
 
     const mkfs = b.addExecutable(.{
         .name = "mkfs",
@@ -27,14 +36,12 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         }),
     });
-    const mkfs_deps: []const []const u8 = &.{ "kernel/params.zig", "kernel/fs/defs.zig" };
-    for (mkfs_deps) |path| {
-        mkfs.root_module.addAnonymousImport(path, .{
-            .root_source_file = b.path(path),
-            .target = target,
-            .optimize = optimize,
-        });
-    }
+    mkfs.root_module.addAnonymousImport("shared", .{
+        .root_source_file = b.path("shared/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const mkfs_run = b.addRunArtifact(mkfs);
     mkfs_run.addArgs(&.{ "fs.img", "README.md" });
     mkfs_run.addArtifactArg(init);
@@ -45,11 +52,7 @@ pub fn build(b: *std.Build) !void {
         .name = "kernel",
         .root_module = b.createModule(.{
             .root_source_file = b.path("kernel/start.zig"),
-            .target = b.resolveTargetQuery(.{
-                .cpu_arch = .riscv64,
-                .os_tag = .freestanding,
-                .abi = .none,
-            }),
+            .target = riscv_target,
             .optimize = optimize,
             .code_model = .medium,
         }),
@@ -58,6 +61,7 @@ pub fn build(b: *std.Build) !void {
     kernel.addAssemblyFile(b.path("kernel/entry.S"));
     kernel.addAssemblyFile(b.path("kernel/trampoline.S"));
     kernel.addAssemblyFile(b.path("kernel/ctxSwitch.S"));
+    kernel.root_module.addImport("shared", shared);
     b.installArtifact(kernel);
 
     const check = b.step("check", "Check if the kernel compiles");

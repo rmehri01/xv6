@@ -1,6 +1,7 @@
 //! Mutual exclusion lock based on sleeping.
 
-const params = @import("../params.zig");
+const params = @import("shared").params;
+
 const proc = @import("../proc.zig");
 const SpinLock = @import("SpinLock.zig");
 

@@ -1,23 +1,22 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const fs = @import("../fs.zig");
+const shared = @import("shared");
+const params = shared.params;
+
 const console = @import("../console.zig");
-const proc = @import("../proc.zig");
+const fs = @import("../fs.zig");
 const log = @import("../fs/log.zig");
-const params = @import("../params.zig");
+const proc = @import("../proc.zig");
 const SpinLock = @import("../sync/SpinLock.zig");
 const Pipe = @import("Pipe.zig");
 
-/// Major device number of the console.
-pub const CONSOLE = 1;
-
-// Map major device number to device functions.
 const DevVTable = struct {
     read: *const fn (proc.EitherMem) u64,
     write: *const fn (proc.EitherMem) u64,
 };
 
+/// Map major device number to device functions.
 var dev_vtables: [params.NUM_DEV]?DevVTable = undefined;
 
 var ftable: struct {
@@ -33,7 +32,7 @@ var ftable: struct {
 pub fn init() void {
     // connect read and write system calls
     // to console.read and console.write.
-    dev_vtables[CONSOLE] = .{
+    dev_vtables[shared.file.CONSOLE] = .{
         .read = console.read,
         .write = console.write,
     };

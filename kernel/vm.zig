@@ -5,9 +5,10 @@ const atomic = std.atomic;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
+const params = @import("shared").params;
+
 const fmt = @import("fmt.zig");
 const memlayout = @import("memlayout.zig");
-const params = @import("params.zig");
 const riscv = @import("riscv.zig");
 
 /// kernel.ld sets this to end of kernel code.

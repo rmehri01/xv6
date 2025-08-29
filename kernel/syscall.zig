@@ -5,41 +5,18 @@ const std = @import("std");
 const assert = std.debug.assert;
 const elf = std.elf;
 
+const params = @import("shared").params;
+const SyscallNum = @import("shared").syscall.Num;
+
 const fmt = @import("fmt.zig");
 const fs = @import("fs.zig");
 const log = @import("fs/log.zig");
 const heap = @import("heap.zig");
-const params = @import("params.zig");
 const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
-const vm = @import("vm.zig");
-const sys_proc = @import("syscall/proc.zig");
 const sys_fs = @import("syscall/fs.zig");
-
-/// System call number.
-const Num = enum(u64) {
-    fork = 1,
-    exit = 2,
-    wait = 3,
-    pipe = 4,
-    read = 5,
-    kill = 6,
-    exec = 7,
-    fstat = 8,
-    chdir = 9,
-    dup = 10,
-    getpid = 11,
-    sbrk = 12,
-    pause = 13,
-    uptime = 14,
-    open = 15,
-    write = 16,
-    mknod = 17,
-    unlink = 18,
-    link = 19,
-    mkdir = 20,
-    close = 21,
-};
+const sys_proc = @import("syscall/proc.zig");
+const vm = @import("vm.zig");
 
 /// Main logic for handling a syscall.
 pub fn handle() void {
@@ -47,7 +24,7 @@ pub fn handle() void {
     const trap_frame = p.private.trap_frame.?;
 
     const num = trap_frame.a7;
-    if (std.enums.fromInt(Num, num)) |sys_num| {
+    if (std.enums.fromInt(SyscallNum, num)) |sys_num| {
         // Use num to lookup the system call function for num, call it,
         // and store its return value in p.private.trap_frame.a0
         trap_frame.a0 = switch (sys_num) {

@@ -8,6 +8,9 @@
         "build.zig",
         "build.zig.zon",
         "kernel",
+        "user",
+        "mkfs",
+        "shared",
         "LICENSE",
     },
 }

@@ -4,10 +4,11 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const params = @import("shared").params;
+
 const fmt = @import("fmt.zig");
 const virtio = @import("fs/virtio.zig");
 const memlayout = @import("memlayout.zig");
-const params = @import("params.zig");
 const plic = @import("plic.zig");
 const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");

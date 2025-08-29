@@ -1,10 +1,10 @@
 //! The main entry point for zig. Also see entry.S
 
-const main = @import("main.zig");
-const params = @import("params.zig");
-const riscv = @import("riscv.zig");
+const params = @import("shared").params;
 
+const main = @import("main.zig");
 pub const panic = main.panic;
+const riscv = @import("riscv.zig");
 
 /// entry.S needs one stack per CPU.
 export const stack0: [riscv.PAGE_SIZE * params.MAX_CPUS]u8 align(16) = undefined;

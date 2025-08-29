@@ -24,12 +24,13 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const defs = @import("shared").fs;
+const params = @import("shared").params;
+
 const fmt = @import("../fmt.zig");
-const params = @import("../params.zig");
 const proc = @import("../proc.zig");
 const SpinLock = @import("../sync/SpinLock.zig");
 const bcache = @import("bcache.zig");
-const defs = @import("defs.zig");
 
 /// Contents of the header block, used for both the on-disk header block
 /// and to keep track in memory of logged block# before commit.

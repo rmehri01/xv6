@@ -17,10 +17,11 @@ const std = @import("std");
 const assert = std.debug.assert;
 const DoublyLinkedList = std.DoublyLinkedList;
 
-const params = @import("../params.zig");
+const defs = @import("shared").fs;
+const params = @import("shared").params;
+
 const SleepLock = @import("../sync/SleepLock.zig");
 const SpinLock = @import("../sync/SpinLock.zig");
-const defs = @import("defs.zig");
 const virtio = @import("virtio.zig");
 
 /// Backing storage for the doubly linked `head` buffer cache.
