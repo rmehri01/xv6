@@ -24,7 +24,13 @@ fn main() !void {
     // stderr
     try syscall.dup(fd);
 
-    fmt.println("hello from userspace!", .{});
+    switch (try syscall.fork()) {
+        .child => fmt.println("hello from child!", .{}),
+        .parent => |child_pid| fmt.println(
+            "hello from parent! child_pid={d}",
+            .{child_pid},
+        ),
+    }
 
     while (true) {}
 }

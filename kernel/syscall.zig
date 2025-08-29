@@ -28,7 +28,7 @@ pub fn handle() void {
         // Use num to lookup the system call function for num, call it,
         // and store its return value in p.private.trap_frame.a0
         trap_frame.a0 = switch (sys_num) {
-            .fork => @panic("todo fork"),
+            .fork => sys_proc.fork(),
             .exit => @panic("todo exit"),
             .wait => @panic("todo wait"),
             .pipe => @panic("todo pipe"),

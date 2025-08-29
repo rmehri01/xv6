@@ -208,9 +208,49 @@ pub fn PageTable(kind: PageTableKind) type {
             allocator.destroy(self.entries);
         }
 
+        // Given a parent process's page table, copy its memory into a child's page table.
+        // Copies both the page table and the physical memory.
+        // Frees any allocated pages on failure.
+        pub fn copyTo(
+            self: @This(),
+            allocator: Allocator,
+            child: @This(),
+            size: u64,
+        ) !void {
+            comptime assert(kind == .user);
+
+            var va: u64 = 0;
+            errdefer child.unmap(allocator, 0, va / riscv.PAGE_SIZE);
+
+            while (va < size) : (va += riscv.PAGE_SIZE) {
+                // check if page table entry has been allocated
+                const pte = self.walk(null, va) catch
+                    continue;
+                // check if physical page has been allocated
+                if (!pte.perms.valid)
+                    continue;
+
+                const pa = pte.toPhysAddr();
+                const mem = try allocator.alloc(u8, riscv.PAGE_SIZE);
+                errdefer allocator.free(mem);
+
+                @memcpy(mem, @as([*]u8, @ptrFromInt(pa)));
+
+                try child.mapPages(
+                    allocator,
+                    va,
+                    @intFromPtr(mem.ptr),
+                    riscv.PAGE_SIZE,
+                    pte.perms,
+                );
+            }
+        }
+
         /// Copy from kernel to user.
         /// Copy bytes from src to virtual address dst in a given page table.
         pub fn copyOut(self: @This(), dst: u64, src: []const u8) !void {
+            comptime assert(kind == .user);
+
             var source = src;
             var dst_va = dst;
             while (source.len > 0) {

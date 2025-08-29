@@ -383,7 +383,7 @@ pub const Inode = struct {
 
     /// Increment reference count for inode.
     /// Returns a pointer to enable const inode = other.dup(); idiom.
-    fn dup(self: *Inode) *Inode {
+    pub fn dup(self: *Inode) *Inode {
         itable.mutex.lock();
         defer itable.mutex.unlock();
 

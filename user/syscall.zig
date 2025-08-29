@@ -9,6 +9,7 @@ const ERR_VALUE = std.math.maxInt(u64);
 extern fn mknodSys([*:0]const u8, u32, u32) u64;
 extern fn openSys([*:0]const u8, u32) u64;
 extern fn dupSys(u32) u64;
+extern fn forkSys() u64;
 extern fn writeSys(u32, [*]const u8, u64) u64;
 
 comptime {
@@ -42,6 +43,19 @@ pub fn dup(fd: u32) !void {
     const ret = dupSys(fd);
     if (ret == ERR_VALUE) {
         return error.SyscallFailed;
+    }
+}
+
+pub fn fork() !union(enum) { child, parent: u32 } {
+    const ret = forkSys();
+    if (ret == ERR_VALUE) {
+        return error.SyscallFailed;
+    }
+
+    if (ret == 0) {
+        return .child;
+    } else {
+        return .{ .parent = @intCast(ret) };
     }
 }
 

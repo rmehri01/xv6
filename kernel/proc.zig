@@ -55,6 +55,11 @@ pub const Pid = u32;
 var next_pid: std.atomic.Value(Pid) = .init(1);
 var first_proc: std.atomic.Value(bool) = .init(true);
 
+/// Helps ensure that wakeups of wait()ing parents are not lost.
+/// Helps obey the memory model when using p.parent.
+/// Must be acquired before any p.mutex.
+var wait_mutex: SpinLock = .{};
+
 /// Per-CPU state.
 pub const Cpu = struct {
     /// The process running on this cpu, or null.
@@ -534,6 +539,60 @@ pub fn exit(status: i32) noreturn {
     // Jump into the scheduler, never to return.
     switchToScheduler();
     @panic("zombie exit");
+}
+
+/// Create a new process, copying the parent.
+/// Sets up child kernel stack to return as if from fork() system call.
+pub fn fork(allocator: Allocator) !Pid {
+    const parent = myProc().?;
+
+    // Allocate process.
+    const child = try Process.alloc(allocator);
+    errdefer {
+        child.free(allocator);
+        child.mutex.unlock();
+    }
+
+    // Copy user memory from parent to child.
+    try parent.private.page_table.?.copyTo(
+        allocator,
+        child.private.page_table.?,
+        parent.private.size,
+    );
+    child.private.size = parent.private.size;
+
+    // Copy saved user registers.
+    child.private.trap_frame.?.* = parent.private.trap_frame.?.*;
+    // Cause fork to return 0 in the child.
+    child.private.trap_frame.?.a0 = 0;
+
+    // Increment reference counts on open file descriptors.
+    for (0..parent.private.open_files.len) |fd| {
+        if (parent.private.open_files[fd]) |f| {
+            child.private.open_files[fd] = f.dup();
+        }
+    }
+    child.private.cwd = parent.private.cwd.?.dup();
+    child.private.name = parent.private.name;
+
+    const pid = child.public.pid.?;
+    child.mutex.unlock();
+
+    {
+        wait_mutex.lock();
+        defer wait_mutex.unlock();
+
+        child.parent = parent;
+    }
+
+    {
+        child.mutex.lock();
+        defer child.mutex.unlock();
+
+        child.public.state = .runnable;
+    }
+
+    return pid;
 }
 
 /// Kill the process with the given pid.
