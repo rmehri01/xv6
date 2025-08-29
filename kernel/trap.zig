@@ -180,7 +180,7 @@ pub fn prepareReturn() void {
     // kernel page table
     trap_frame.kernel_satp = riscv.csrr(.satp);
     // process's kernel stack
-    trap_frame.kernel_sp = p.private.kstack + riscv.PAGE_SIZE;
+    trap_frame.kernel_sp = p.private.kstack + params.STACK_SIZE;
     trap_frame.kernel_trap = @intFromPtr(&userTrap);
     // hartid for cpuid()
     trap_frame.kernel_hartid = riscv.read(.tp);
@@ -203,7 +203,7 @@ pub fn prepareReturn() void {
 /// Handle an interrupt, exception, or system call from user space.
 /// called from, and returns to, trampoline.S.
 /// Return value is user satp for trampoline.S to switch to.
-fn userTrap() u64 {
+fn userTrap() callconv(.c) u64 {
     assert(riscv.csrr(.sstatus) & riscv.SSTATUS_SPP == 0);
 
     // send interrupts and exceptions to kerneltrap(),

@@ -333,7 +333,7 @@ pub fn freePageTable(allocator: Allocator, page_table: vm.PageTable(.user), size
 }
 
 /// A fork child's very first scheduling by runScheduler() will switch to forkRet.
-fn forkRet() void {
+fn forkRet() callconv(.c) void {
     const proc = myProc().?;
 
     // Still holding p.mutex from scheduler.
@@ -358,7 +358,7 @@ fn forkRet() void {
     const satp = proc.private.page_table.?.makeSatp();
     const trampoline_user_ret = memlayout.TRAMPOLINE +
         (@intFromPtr(&userRet) - @intFromPtr(&trampoline));
-    @as(*const fn (u64) void, @ptrFromInt(trampoline_user_ret))(satp);
+    @as(*const fn (u64) callconv(.c) void, @ptrFromInt(trampoline_user_ret))(satp);
 }
 
 /// Per-CPU process scheduler.
