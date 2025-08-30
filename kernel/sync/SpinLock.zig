@@ -16,13 +16,12 @@ cpu: ?*proc.Cpu = null,
 /// Acquire the lock. Loops (spins) until the lock is acquired.
 pub fn lock(self: *SpinLock) void {
     riscv.pushIntrOff();
-
     assert(!self.holding());
-    self.cpu = proc.myCpu();
 
     while (self.locked.cmpxchgWeak(false, true, .acquire, .monotonic) != null) {
         std.atomic.spinLoopHint();
     }
+    self.cpu = proc.myCpu();
 }
 
 /// Release the lock.
@@ -37,5 +36,5 @@ pub fn unlock(self: *SpinLock) void {
 /// Check whether this cpu is holding the lock.
 /// Interrupts must be off.
 pub fn holding(self: *SpinLock) bool {
-    return self.locked.load(.acquire) and self.cpu.? == proc.myCpu();
+    return self.locked.load(.acquire) and self.cpu == proc.myCpu();
 }
