@@ -28,6 +28,7 @@ pub fn build(b: *std.Build) !void {
     });
     init.setLinkerScript(b.path("user/user.ld"));
     init.root_module.addImport("shared", shared);
+    b.installArtifact(init);
 
     const mkfs = b.addExecutable(.{
         .name = "mkfs",

@@ -11,7 +11,7 @@ pub const MAX_ARGS = 32;
 /// Size of stack per cpu
 pub const STACK_SIZE = 4096 * 8;
 /// Size of user stack
-pub const USER_STACK_SIZE = 4096;
+pub const USER_STACK_SIZE = 4096 * 8;
 
 /// Interval at which timer interrupts should occur.
 /// 1000000 is about a tenth of a second.

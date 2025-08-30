@@ -29,7 +29,7 @@ pub fn handle() void {
         // and store its return value in p.private.trap_frame.a0
         trap_frame.a0 = switch (sys_num) {
             .fork => sys_proc.fork(),
-            .exit => @panic("todo exit"),
+            .exit => sys_proc.exit(),
             .wait => @panic("todo wait"),
             .pipe => @panic("todo pipe"),
             .read => @panic("todo read"),

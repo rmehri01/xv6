@@ -10,6 +10,7 @@ extern fn mknodSys([*:0]const u8, u32, u32) u64;
 extern fn openSys([*:0]const u8, u32) u64;
 extern fn dupSys(u32) u64;
 extern fn forkSys() u64;
+extern fn exitSys(i32) noreturn;
 extern fn writeSys(u32, [*]const u8, u64) u64;
 
 comptime {
@@ -57,6 +58,10 @@ pub fn fork() !union(enum) { child, parent: u32 } {
     } else {
         return .{ .parent = @intCast(ret) };
     }
+}
+
+pub fn exit(status: i32) noreturn {
+    exitSys(status);
 }
 
 pub fn write(fd: u32, buf: []const u8) !u64 {

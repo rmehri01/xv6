@@ -8,6 +8,11 @@ pub fn fork() !u64 {
     return try proc.fork(heap.page_allocator);
 }
 
+pub fn exit() noreturn {
+    const status = syscall.intArg(0);
+    proc.exit(@bitCast(status));
+}
+
 pub fn kill() !u64 {
     const pid = syscall.intArg(0);
     try proc.kill(pid);

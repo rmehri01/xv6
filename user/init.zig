@@ -7,12 +7,23 @@ const file = @import("shared").file;
 const fmt = @import("fmt.zig");
 const syscall = @import("syscall.zig");
 
-export fn _start() void {
+pub const panic = std.debug.FullPanic(panicImpl);
+
+fn panicImpl(msg: []const u8, first_trace_addr: ?usize) noreturn {
+    @branchHint(.cold);
+    _ = first_trace_addr;
+
+    // TODO: println doesnt work here
+    _ = syscall.write(2, msg) catch {};
+    syscall.exit(1);
+}
+
+export fn _start() noreturn {
     // TODO: printf error?
     main() catch @panic("init panic");
 }
 
-fn main() !void {
+fn main() !noreturn {
     const fd = syscall.open("console", file.OpenMode.READ_WRITE) catch value: {
         try syscall.mknod("console", file.CONSOLE, 0);
         break :value syscall.open("console", file.OpenMode.READ_WRITE) catch
