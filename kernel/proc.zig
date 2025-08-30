@@ -21,7 +21,7 @@ extern const trampoline: opaque {};
 extern const userRet: opaque {};
 
 var cpus: [params.MAX_CPUS]Cpu = undefined;
-var initProc: *Process = undefined;
+var init_proc: *Process = undefined;
 var procs: [params.MAX_PROCS]Process = init: {
     var init_procs: [params.MAX_PROCS]Process = undefined;
 
@@ -129,6 +129,17 @@ const Process = struct {
         defer self.mutex.unlock();
 
         self.public.killed = true;
+    }
+
+    /// Pass this process' abandoned children to init.
+    /// Caller must hold wait_lock.
+    pub fn reparentChildren(self: *Process) void {
+        for (&procs) |*proc| {
+            if (proc.parent == self) {
+                proc.parent = init_proc;
+                wakeUp(@intFromPtr(init_proc));
+            }
+        }
     }
 
     /// Look in the process table for an unused proc.
@@ -288,11 +299,11 @@ const Context = extern struct {
 
 /// Set up first user process.
 pub fn userInit(allocator: Allocator) !void {
-    initProc = try .alloc(allocator);
-    defer initProc.mutex.unlock();
+    init_proc = try .alloc(allocator);
+    defer init_proc.mutex.unlock();
 
-    initProc.private.cwd = fs.lookupPath("/") catch unreachable;
-    initProc.public.state = .runnable;
+    init_proc.private.cwd = fs.lookupPath("/") catch unreachable;
+    init_proc.public.state = .runnable;
 }
 
 /// Create a user page table for a given process, with no user memory,
@@ -517,7 +528,7 @@ pub fn eitherCopyIn(dst: []u8, src: EitherMem) !void {
 /// until its parent calls wait().
 pub fn exit(status: i32) noreturn {
     const proc = myProc().?;
-    if (proc == initProc) {
+    if (proc == init_proc) {
         @panic("init exiting");
     }
 
@@ -532,9 +543,17 @@ pub fn exit(status: i32) noreturn {
     log.beginOp();
     proc.private.cwd.?.put();
     log.endOp();
+    proc.private.cwd = null;
 
-    // TODO: wait
+    wait_mutex.lock();
+    // Give any children to init.
+    proc.reparentChildren();
+    // Parent might be sleeping in wait().
+    wakeUp(@intFromPtr(proc.parent.?));
+
+    proc.mutex.lock();
     proc.public.state = .{ .zombie = .{ .exit_status = status } };
+    wait_mutex.unlock();
 
     // Jump into the scheduler, never to return.
     switchToScheduler();
@@ -593,6 +612,52 @@ pub fn fork(allocator: Allocator) !Pid {
     }
 
     return pid;
+}
+
+/// Wait for a child process to exit and return its pid,
+/// optionally copying it's exit status to out_addr.
+/// Return an if this process has no children.
+pub fn wait(allocator: Allocator, out_addr: ?u64) !Pid {
+    const parent = myProc().?;
+
+    wait_mutex.lock();
+    defer wait_mutex.unlock();
+
+    while (true) {
+        // Scan through table looking for exited children.
+        var have_kids = false;
+
+        for (&procs) |*child| {
+            if (child.parent == parent) {
+                // make sure the child isn't still in exit() or swtch().
+                child.mutex.lock();
+                defer child.mutex.unlock();
+
+                have_kids = true;
+
+                if (child.public.state == .zombie) {
+                    // Found one.
+                    const pid = child.public.pid.?;
+                    if (out_addr) |addr| {
+                        try parent.private.page_table.?.copyOut(
+                            addr,
+                            std.mem.asBytes(&child.public.state.zombie),
+                        );
+                    }
+                    child.free(allocator);
+                    return pid;
+                }
+            }
+        }
+
+        // No point waiting if we don't have any children.
+        if (!have_kids or parent.isKilled()) {
+            return error.WaitFailed;
+        }
+
+        // Wait for a child to exit.
+        sleep(@intFromPtr(parent), &wait_mutex);
+    }
 }
 
 /// Kill the process with the given pid.

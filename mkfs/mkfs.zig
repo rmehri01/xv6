@@ -93,7 +93,6 @@ pub fn main() !void {
         var path_parts = std.mem.splitBackwardsScalar(u8, path, '/');
         const shortName = path_parts.next().?;
         assert(shortName.len <= fs.DIR_NAME_SIZE);
-        // TODO: leading _ for binary names?
 
         const inum = try allocInode(.file);
 

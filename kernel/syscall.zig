@@ -30,7 +30,7 @@ pub fn handle() void {
         trap_frame.a0 = switch (sys_num) {
             .fork => sys_proc.fork(),
             .exit => sys_proc.exit(),
-            .wait => @panic("todo wait"),
+            .wait => sys_proc.wait(),
             .pipe => @panic("todo pipe"),
             .read => @panic("todo read"),
             .kill => sys_proc.kill(),

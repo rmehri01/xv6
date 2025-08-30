@@ -13,6 +13,11 @@ pub fn exit() noreturn {
     proc.exit(@bitCast(status));
 }
 
+pub fn wait() !u64 {
+    const addr = syscall.rawArg(0);
+    return try proc.wait(heap.page_allocator, if (addr == 0) null else addr);
+}
+
 pub fn kill() !u64 {
     const pid = syscall.intArg(0);
     try proc.kill(pid);

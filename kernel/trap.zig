@@ -215,6 +215,7 @@ fn userTrap() callconv(.c) u64 {
     // save user program counter.
     p.private.trap_frame.?.epc = riscv.csrr(.sepc);
 
+    var is_timer = false;
     const scause = riscv.csrr(.scause);
     if (scause == 8) {
         // system call
@@ -230,7 +231,11 @@ fn userTrap() callconv(.c) u64 {
         // so enable only now that we're done with those registers.
         riscv.intrOn();
         syscall.handle();
-    } else if (handleDevIntr() != .unknown) {
+    } else if (value: {
+        const dev_intr = handleDevIntr();
+        is_timer = dev_intr == .timer;
+        break :value dev_intr != .unknown;
+    }) {
         // ok
     } else if ((scause == 15 or scause == 13) and
         if (p.private.page_table.?.handleFault(riscv.csrr(.stval))) |_| true else |_| false)
@@ -246,7 +251,10 @@ fn userTrap() callconv(.c) u64 {
 
     if (p.isKilled())
         proc.exit(-1);
-    // TODO: yield
+
+    // Give up the CPU if this is a timer interrupt.
+    if (is_timer)
+        p.yield();
 
     prepareReturn();
 

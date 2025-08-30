@@ -35,13 +35,24 @@ fn main() !noreturn {
     // stderr
     try syscall.dup(fd);
 
-    switch (try syscall.fork()) {
-        .child => fmt.println("hello from child!", .{}),
-        .parent => |child_pid| fmt.println(
-            "hello from parent! child_pid={d}",
-            .{child_pid},
-        ),
+    while (true) {
+        fmt.println("init: starting sh", .{});
+        switch (try syscall.fork()) {
+            .child => {
+                fmt.println("hello from child!", .{});
+                syscall.exit(1);
+            },
+            .parent => |child_pid| while (true) {
+                // this call to wait() returns if the shell exits,
+                // or if a parentless process exits.
+                const wait_pid = try syscall.wait(null);
+                if (wait_pid == child_pid) {
+                    // the shell exited; restart it.
+                    break;
+                } else {
+                    // it was a parentless process; do nothing.
+                }
+            },
+        }
     }
-
-    while (true) {}
 }

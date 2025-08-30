@@ -105,7 +105,7 @@ fn free(
     assert(addr % riscv.PAGE_SIZE == 0);
     assert(addr >= @intFromPtr(&end));
     assert(addr < memlayout.PHYS_STOP);
-    assert(buf.len == riscv.PAGE_SIZE);
+    assert(buf.len <= riscv.PAGE_SIZE);
 
     // Fill with junk to catch dangling refs.
     @memset(buf, 1);
