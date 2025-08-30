@@ -77,7 +77,7 @@ fn lookupPathImpl(path: []const u8, parent: bool) !struct { *Inode, []const u8 }
             return .{ inode, component };
         }
 
-        const next, _ = lookupDir(inode, component) orelse
+        const next, _ = lookupInDir(inode, component) orelse
             return error.InvalidDirectory;
         inode.unlockPut();
         inode = next;
@@ -95,7 +95,7 @@ fn lookupPathImpl(path: []const u8, parent: bool) !struct { *Inode, []const u8 }
 
 /// Look for a directory entry in a directory.
 /// If found, return the corresponding inode and it's byte offset.
-pub fn lookupDir(dir_inode: *Inode, name: []const u8) ?struct { *Inode, u32 } {
+pub fn lookupInDir(dir_inode: *Inode, name: []const u8) ?struct { *Inode, u32 } {
     assert(dir_inode.dinode.type == @intFromEnum(defs.FileType.dir));
 
     var off: u32 = 0;
@@ -120,11 +120,11 @@ pub fn lookupDir(dir_inode: *Inode, name: []const u8) ?struct { *Inode, u32 } {
 }
 
 /// Write a new directory entry (name, inum) into the directory.
-pub fn linkDir(dir_inode: *Inode, name: []const u8, inum: u16) !void {
+pub fn linkInDir(dir_inode: *Inode, name: []const u8, inum: u16) !void {
     assert(dir_inode.dinode.type == @intFromEnum(defs.FileType.dir));
 
     // Check that name is not present.
-    if (lookupDir(dir_inode, name)) |inode| {
+    if (lookupInDir(dir_inode, name)) |inode| {
         inode.@"0".put();
         return error.DirEntAlreadyExists;
     }

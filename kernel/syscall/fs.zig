@@ -114,7 +114,7 @@ fn create(
     const parent, const name = try fs.lookupParent(path);
     parent.lock();
 
-    if (fs.lookupDir(parent, name)) |i| {
+    if (fs.lookupInDir(parent, name)) |i| {
         parent.unlockPut();
 
         const inode = i.@"0";
@@ -154,7 +154,7 @@ fn create(
 
     // TODO: handle if ty == .dir
 
-    try fs.linkDir(parent, name, @intCast(inode.inum));
+    try fs.linkInDir(parent, name, @intCast(inode.inum));
 
     // TODO: handle if ty == .dir
 
