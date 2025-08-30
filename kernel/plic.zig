@@ -41,7 +41,9 @@ pub fn claim() ?Irq {
     const cpuId = riscv.cpuId();
     const irq = sClaim(cpuId).*;
     return std.enums.fromInt(Irq, irq) orelse {
-        fmt.println("unexpected interrupt irq={d}", .{irq});
+        if (irq != 0) {
+            fmt.println("unexpected interrupt irq={d}", .{irq});
+        }
         return null;
     };
 }
