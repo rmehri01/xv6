@@ -215,6 +215,13 @@ fn appendToInode(inum: u16, bytes: []const u8) !void {
                 const indirect_block_num = inode.addrs[fs.NUM_DIRECT];
                 var indirect: [fs.NUM_INDIRECT]u32 = undefined;
                 try readSect(indirect_block_num, std.mem.asBytes(&indirect));
+
+                if (indirect[block_num - fs.NUM_DIRECT] == 0) {
+                    indirect[block_num - fs.NUM_DIRECT] = next_block;
+                    next_block += 1;
+                    try writeSect(indirect_block_num, std.mem.asBytes(&indirect));
+                }
+
                 break :value indirect[block_num - fs.NUM_DIRECT];
             }
         };
