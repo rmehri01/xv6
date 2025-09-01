@@ -302,7 +302,7 @@ pub fn userInit(allocator: Allocator) !void {
     init_proc = try .alloc(allocator);
     defer init_proc.mutex.unlock();
 
-    init_proc.private.cwd = fs.lookupPath("/") catch unreachable;
+    init_proc.private.cwd = fs.lookupPath(allocator, "/") catch unreachable;
     init_proc.public.state = .runnable;
 }
 
@@ -359,7 +359,7 @@ fn forkRet() callconv(.c) void {
 
         // We can invoke kexec() now that file system is initialized.
         // Put the return value (argc) of kexec into a0.
-        proc.private.trap_frame.?.a0 = syscall.kexec("/init", &.{"/init"}) catch |err|
+        proc.private.trap_frame.?.a0 = syscall.kexec("/init", &.{ "/init", null }) catch |err|
             std.debug.panic("failed to exec init program: {}", .{err});
     }
 
@@ -500,24 +500,24 @@ pub const EitherMem = union(enum) {
 };
 
 /// Copy to either a user address, or kernel address, depending on dst.
-pub fn eitherCopyOut(dst: EitherMem, src: []const u8) !void {
+pub fn eitherCopyOut(allocator: Allocator, dst: EitherMem, src: []const u8) !void {
     switch (dst) {
         .user => |dest| {
             const proc = myProc().?;
             assert(dest.len == src.len);
-            return proc.private.page_table.?.copyOut(dest.addr, src);
+            return proc.private.page_table.?.copyOut(allocator, dest.addr, src);
         },
         .kernel => |dest| @memcpy(dest, src),
     }
 }
 
 /// Copy from either a user address, or kernel address, depending on src.
-pub fn eitherCopyIn(dst: []u8, src: EitherMem) !void {
+pub fn eitherCopyIn(allocator: Allocator, dst: []u8, src: EitherMem) !void {
     switch (src) {
         .user => |source| {
             const proc = myProc().?;
             assert(source.len == dst.len);
-            return proc.private.page_table.?.copyIn(dst, source.addr);
+            return proc.private.page_table.?.copyIn(allocator, dst, source.addr);
         },
         .kernel => |source| @memcpy(dst, source),
     }
@@ -640,6 +640,7 @@ pub fn wait(allocator: Allocator, out_addr: ?u64) !Pid {
                     const pid = child.public.pid.?;
                     if (out_addr) |addr| {
                         try parent.private.page_table.?.copyOut(
+                            allocator,
                             addr,
                             std.mem.asBytes(&child.public.state.zombie),
                         );

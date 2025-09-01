@@ -1,7 +1,9 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) !void {
+    // the host target, which mkfs runs on
     const target = b.standardTargetOptions(.{});
+    // the riscv target which the kernel and user programs run on
     const riscv_target = b.resolveTargetQuery(.{
         .cpu_arch = .riscv64,
         .os_tag = .freestanding,
@@ -9,6 +11,11 @@ pub fn build(b: *std.Build) !void {
     });
     const optimize = b.standardOptimizeOption(.{});
 
+    // the check step makes sure everything compiles and gives us nicer
+    // diagnostics from zls
+    const check = b.step("check", "Check if the kernel compiles");
+
+    // shared definitions between kernel and userspace
     const shared = b.addModule("shared", .{
         .root_source_file = b.path("shared/root.zig"),
         .target = riscv_target,
@@ -16,20 +23,8 @@ pub fn build(b: *std.Build) !void {
         .code_model = .medium,
     });
 
-    const init = b.addExecutable(.{
-        .name = "init",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("user/init.zig"),
-            .target = riscv_target,
-            .optimize = .ReleaseSafe,
-            .code_model = .medium,
-            .strip = true,
-        }),
-    });
-    init.setLinkerScript(b.path("user/user.ld"));
-    init.root_module.addImport("shared", shared);
-    b.installArtifact(init);
-
+    // compile mkfs which takes a list of user programs to include in the
+    // initial file system image
     const mkfs = b.addExecutable(.{
         .name = "mkfs",
         .root_module = b.createModule(.{
@@ -43,13 +38,62 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    check.dependOn(&mkfs.step);
 
     const mkfs_run = b.addRunArtifact(mkfs);
     mkfs_run.addArgs(&.{ "fs.img", "README.md" });
-    mkfs_run.addArtifactArg(init);
+
+    // compile the shared user library
+    const ulib = b.addModule("ulib", .{
+        .root_source_file = b.path("user/lib/root.zig"),
+        .target = riscv_target,
+        .optimize = .ReleaseSafe,
+    });
+    ulib.addImport("shared", shared);
+
+    // compile user programs
+    const user_progs: []const []const u8 = &.{
+        "init",
+        "sh",
+    };
+    inline for (user_progs) |prog| {
+        // the shim sets up a panic handler and does error handling/exiting
+        // so that the user programs can just define main
+        const shim = b.addExecutable(.{
+            .name = prog,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("user/bin/entry.zig"),
+                .target = riscv_target,
+                .optimize = .ReleaseSafe,
+                .strip = true,
+            }),
+        });
+        shim.setLinkerScript(b.path("user/user.ld"));
+        shim.root_module.addImport("shared", shared);
+        shim.root_module.addImport("ulib", ulib);
+
+        const uprog = b.createModule(.{
+            .root_source_file = b.path(
+                std.fmt.comptimePrint("user/bin/{s}.zig", .{prog}),
+            ),
+            .target = riscv_target,
+            .optimize = .ReleaseSafe,
+            .strip = true,
+        });
+        uprog.addImport("shared", shared);
+        uprog.addImport("ulib", ulib);
+
+        shim.root_module.addImport("uprog", uprog);
+        b.installArtifact(shim);
+
+        mkfs_run.addArtifactArg(shim);
+        check.dependOn(&shim.step);
+    }
+
     const mkfs_step = b.step("mkfs", "Build an initial file system");
     mkfs_step.dependOn(&mkfs_run.step);
 
+    // compile the kernel itself
     const kernel = b.addExecutable(.{
         .name = "kernel",
         .root_module = b.createModule(.{
@@ -65,11 +109,9 @@ pub fn build(b: *std.Build) !void {
     kernel.addAssemblyFile(b.path("kernel/ctxSwitch.S"));
     kernel.root_module.addImport("shared", shared);
     b.installArtifact(kernel);
-
-    const check = b.step("check", "Check if the kernel compiles");
     check.dependOn(&kernel.step);
-    check.dependOn(&mkfs.step);
 
+    // set up a run command that runs the kernel in qemu with the fs image from mkfs
     const qemu = "qemu-system-riscv64";
     const qemu_cpu = "rv64";
 

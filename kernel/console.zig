@@ -7,6 +7,7 @@
 //!   control-d -- end of file
 //!   control-p -- print process list
 
+const heap = @import("heap.zig");
 const proc = @import("proc.zig");
 const uart = @import("uart.zig");
 
@@ -30,7 +31,11 @@ pub fn write(source: proc.EitherMem) u64 {
             },
             .kernel => |src| .{ .kernel = src[written..][0..bytes_to_write] },
         };
-        proc.eitherCopyIn(buf[0..bytes_to_write], src) catch break;
+        proc.eitherCopyIn(
+            heap.page_allocator,
+            buf[0..bytes_to_write],
+            src,
+        ) catch break;
         uart.write(buf[0..bytes_to_write]);
 
         written += bytes_to_write;

@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 const elf = std.elf;
 
 const params = @import("shared").params;
@@ -34,7 +35,7 @@ pub fn handle() void {
             .pipe => @panic("todo pipe"),
             .read => @panic("todo read"),
             .kill => sys_proc.kill(),
-            .exec => @panic("todo exec"),
+            .exec => sys_fs.exec(),
             .fstat => @panic("todo fstat"),
             .chdir => @panic("todo chdir"),
             .dup => sys_fs.dup(),
@@ -60,20 +61,20 @@ pub fn handle() void {
 }
 
 /// Fetch the nth 32-bit system call argument.
-pub fn intArg(n: u32) u32 {
+pub fn intArg(n: u3) u32 {
     return @intCast(rawArg(n));
 }
 
 /// Fetch the nth word-sized system call argument as a string.
 /// Copies into buf, at most buf.len.
-/// Returns string length if OK or error.
-pub fn strArg(n: u32, dst: [:0]u8) !usize {
+/// Returns string if OK or error.
+pub fn strArg(n: u3, dst: [:0]u8) ![:0]u8 {
     const addr = rawArg(n);
     return try fetchStr(dst, addr);
 }
 
 /// Fetch the nth system call argument as a raw 64-bit integer.
-pub fn rawArg(n: u32) u64 {
+pub fn rawArg(n: u3) u64 {
     const p = proc.myProc().?;
     const trap_frame = p.private.trap_frame.?;
 
@@ -88,19 +89,30 @@ pub fn rawArg(n: u32) u64 {
     };
 }
 
+// Fetch the u64 at addr from the current process.
+pub fn fetchAddr(addr: u64) !u64 {
+    const p = proc.myProc().?;
+    if (addr >= p.private.size or addr + @sizeOf(u64) > p.private.size)
+        return error.AddrOutOfRange;
+
+    var dst: u64 = undefined;
+    try p.private.page_table.?.copyIn(
+        heap.page_allocator,
+        std.mem.asBytes(&dst),
+        addr,
+    );
+    return dst;
+}
+
 /// Fetch the nul-terminated string at addr from the current process.
-/// Returns length of string or an error.
-fn fetchStr(dst: [:0]u8, src_addr: u64) !usize {
+/// Returns string or an error.
+pub fn fetchStr(dst: [:0]u8, src_addr: u64) ![:0]u8 {
     const p = proc.myProc().?;
     return try p.private.page_table.?.copyInStr(dst, src_addr);
 }
 
 /// The implementation of the exec() system call.
-pub fn kexec(path: []const u8, argv: []const [:0]const u8) !u64 {
-    // TODO: need the -1?
-    if (argv.len >= params.MAX_ARGS - 1)
-        return error.TooManyArgs;
-
+pub fn kexec(path: []const u8, argv: [*]const ?[:0]const u8) !u64 {
     var size: u64 = 0;
     const allocator = heap.page_allocator;
     const p = proc.myProc().?;
@@ -112,12 +124,12 @@ pub fn kexec(path: []const u8, argv: []const [:0]const u8) !u64 {
         log.beginOp();
         defer log.endOp();
 
-        var inode = try fs.lookupPath(path);
+        var inode = try fs.lookupPath(allocator, path);
         defer inode.unlockPut();
         inode.lock();
 
         var hdr_buf: [@sizeOf(elf.Ehdr)]u8 = undefined;
-        const read = try inode.read(.{ .kernel = &hdr_buf }, 0);
+        const read = try inode.read(allocator, .{ .kernel = &hdr_buf }, 0);
         assert(read == hdr_buf.len);
 
         var hdr_reader = std.Io.Reader.fixed(&hdr_buf);
@@ -129,6 +141,7 @@ pub fn kexec(path: []const u8, argv: []const [:0]const u8) !u64 {
 
             var prog_hdr: elf.Phdr = undefined;
             const rd = try inode.read(
+                allocator,
                 .{ .kernel = std.mem.asBytes(&prog_hdr) },
                 @intCast(off),
             );
@@ -148,6 +161,7 @@ pub fn kexec(path: []const u8, argv: []const [:0]const u8) !u64 {
                 flagsToPerms(prog_hdr.p_flags),
             );
             try loadSeg(
+                allocator,
                 page_table,
                 inode,
                 prog_hdr.p_vaddr,
@@ -180,25 +194,32 @@ pub fn kexec(path: []const u8, argv: []const [:0]const u8) !u64 {
     var sp = size;
     const stack_base = sp - params.USER_STACK_SIZE;
 
-    for (0.., argv) |argc, arg| {
-        // TODO: nul termination?
+    var argc: u64 = 0;
+    while (argv[argc]) |arg| : (argc += 1) {
+        if (argc >= params.MAX_ARGS)
+            return error.TooManyArgs;
+
         // riscv sp must be 16-byte aligned
         sp -= arg.len + 1;
         sp -= sp % 16;
 
         if (sp < stack_base)
             return error.OutOfUserStack;
-        try page_table.copyOut(sp, arg[0 .. arg.len + 1]);
+        try page_table.copyOut(allocator, sp, arg[0 .. arg.len + 1]);
         ustack[argc] = sp;
     }
-    ustack[argv.len] = 0;
+    ustack[argc] = 0;
 
     // push a copy of ustack, the array of argv pointers.
-    sp -= (argv.len + 1) * @sizeOf(u64);
+    sp -= (argc + 1) * @sizeOf(u64);
     sp -= sp % 16;
     if (sp < stack_base)
         return error.OutOfUserStack;
-    try page_table.copyOut(sp, std.mem.sliceAsBytes(ustack[0 .. argv.len + 1]));
+    try page_table.copyOut(
+        allocator,
+        sp,
+        std.mem.sliceAsBytes(ustack[0 .. argc + 1]),
+    );
 
     // a0 and a1 contain arguments to user main(argc, argv)
     // argc is returned via the system call return
@@ -220,12 +241,13 @@ pub fn kexec(path: []const u8, argv: []const [:0]const u8) !u64 {
     proc.freePageTable(allocator, old_page_table, old_size);
 
     // this ends up in a0, the first argument to main(argc, argv)
-    return argv.len;
+    return argc;
 }
 
 /// Load an ELF program segment into pagetable at virtual address va.
 /// va must be page-aligned and the pages from va to va+sz must already be mapped.
 fn loadSeg(
+    allocator: Allocator,
     page_table: vm.PageTable(.user),
     inode: *fs.Inode,
     va: u64,
@@ -247,7 +269,11 @@ fn loadSeg(
             riscv.PAGE_SIZE;
 
         const mem = @as([*]u8, @ptrFromInt(pa))[0..n];
-        const read = try inode.read(.{ .kernel = mem }, @intCast(hdr_off + va_off));
+        const read = try inode.read(
+            allocator,
+            .{ .kernel = mem },
+            @intCast(hdr_off + va_off),
+        );
         if (read != n)
             return error.FailedToLoadSegment;
     }

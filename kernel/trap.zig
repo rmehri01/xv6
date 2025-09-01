@@ -8,6 +8,7 @@ const params = @import("shared").params;
 
 const fmt = @import("fmt.zig");
 const virtio = @import("fs/virtio.zig");
+const heap = @import("heap.zig");
 const memlayout = @import("memlayout.zig");
 const plic = @import("plic.zig");
 const proc = @import("proc.zig");
@@ -238,7 +239,10 @@ fn userTrap() callconv(.c) u64 {
     }) {
         // ok
     } else if ((scause == 15 or scause == 13) and
-        if (p.private.page_table.?.handleFault(riscv.csrr(.stval))) |_| true else |_| false)
+        if (p.private.page_table.?.handleFault(
+            heap.page_allocator,
+            riscv.csrr(.stval),
+        )) |_| true else |_| false)
     {
         // page fault on lazily-allocated page
     } else {

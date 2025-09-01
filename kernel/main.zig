@@ -26,7 +26,7 @@ fn panicImpl(msg: []const u8, first_trace_addr: ?usize) noreturn {
     w.mutex.lock();
     w.interface.print("hart {d}: KERNEL PANIC! {s}\n", .{ cpu_id, msg }) catch {};
     if (first_trace_addr) |first_addr| {
-        var it = std.debug.StackIterator.init(first_addr, null);
+        var it = std.debug.StackIterator.init(first_addr, @frameAddress());
         while (it.next()) |addr| {
             w.interface.print("  0x{x}\n", .{addr}) catch {};
         }

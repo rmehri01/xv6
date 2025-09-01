@@ -9,6 +9,7 @@ const params = @import("shared").params;
 
 const fmt = @import("fmt.zig");
 const memlayout = @import("memlayout.zig");
+const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
 
 /// kernel.ld sets this to end of kernel code.
@@ -248,18 +249,24 @@ pub fn PageTable(kind: PageTableKind) type {
 
         /// Copy from kernel to user.
         /// Copy bytes from src to virtual address dst in a given page table.
-        pub fn copyOut(self: @This(), dst: u64, src: []const u8) !void {
+        pub fn copyOut(
+            self: @This(),
+            allocator: Allocator,
+            dst: u64,
+            src: []const u8,
+        ) !void {
             comptime assert(kind == .user);
 
             var source = src;
             var dst_va = dst;
+
             while (source.len > 0) {
                 const va = riscv.pageRoundDown(dst_va);
                 if (va >= riscv.MAX_VA)
                     return error.InvalidVirtAddr;
 
                 const pa = self.walkAddr(va) catch
-                    try self.handleFault(va);
+                    try self.handleFault(allocator, va);
                 const pte = try self.walk(null, va);
 
                 // forbid copyout over read-only user text pages.
@@ -278,7 +285,12 @@ pub fn PageTable(kind: PageTableKind) type {
 
         /// Copy from user to kernel.
         /// Copy len bytes to dst from virtual address srcva in a given page table.
-        pub fn copyIn(self: @This(), dst: []u8, src: u64) !void {
+        pub fn copyIn(
+            self: @This(),
+            allocator: Allocator,
+            dst: []u8,
+            src: u64,
+        ) !void {
             comptime assert(kind == .user);
 
             var dest = dst;
@@ -287,7 +299,7 @@ pub fn PageTable(kind: PageTableKind) type {
             while (dest.len > 0) {
                 const va = riscv.pageRoundDown(src_va);
                 const pa = self.walkAddr(va) catch
-                    try self.handleFault(va);
+                    try self.handleFault(allocator, va);
 
                 var n = riscv.PAGE_SIZE - (src_va - va);
                 if (n > dest.len)
@@ -303,8 +315,10 @@ pub fn PageTable(kind: PageTableKind) type {
         /// Copy a null-terminated string from user to kernel.
         /// Copy bytes to dst from virtual address src_addr in a given page table,
         /// until a '\0', or dst.len.
-        /// Return length of string on success or an error.
-        pub fn copyInStr(self: @This(), dst: [:0]u8, src_addr: u64) !usize {
+        /// Return the string on success or an error.
+        pub fn copyInStr(self: @This(), dst: []u8, src_addr: u64) ![:0]u8 {
+            comptime assert(kind == .user);
+
             var dest = dst;
             var src_va = src_addr;
 
@@ -320,7 +334,7 @@ pub fn PageTable(kind: PageTableKind) type {
                 while (n > 0) {
                     if (src[0] == 0) {
                         dest[0] = 0;
-                        return dst.len - dest.len;
+                        return dst[0 .. dst.len - dest.len :0];
                     } else {
                         dest[0] = src[0];
                     }
@@ -340,10 +354,39 @@ pub fn PageTable(kind: PageTableKind) type {
         /// that was lazily allocated in sbrk().
         /// Returns an error if va is invalid or already mapped, or if
         /// out of physical memory, and physical address if successful.
-        pub fn handleFault(self: @This(), va: u64) !u64 {
-            _ = self; // autofix
-            _ = va; // autofix
-            @panic("handle fault unimplemented");
+        pub fn handleFault(self: @This(), allocator: Allocator, va: u64) !u64 {
+            comptime assert(kind == .user);
+
+            const p = proc.myProc().?;
+            if (va >= p.private.size)
+                return error.InvalidVirtAddr;
+
+            const vaddr = riscv.pageRoundDown(va);
+            if (self.isMapped(vaddr))
+                return error.AlreadyMapped;
+
+            const mem = try allocator.alloc(u8, riscv.PAGE_SIZE);
+            errdefer allocator.free(mem);
+            @memset(mem, 0);
+
+            const pa = @intFromPtr(mem.ptr);
+            try self.mapPages(
+                allocator,
+                vaddr,
+                pa,
+                riscv.PAGE_SIZE,
+                .{ .user = true, .readable = true, .writable = true },
+            );
+            return pa;
+        }
+
+        /// Checks if the given va is mapped in this page table.
+        fn isMapped(self: @This(), va: u64) bool {
+            const pte = self.walk(null, va) catch |err| {
+                assert(err == error.PteNotFound);
+                return false;
+            };
+            return pte.perms.valid;
         }
 
         /// Allocate PTEs and physical memory to grow a process from old_size to

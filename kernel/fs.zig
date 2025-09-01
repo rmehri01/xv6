@@ -11,6 +11,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 const defs = @import("shared").fs;
 const params = @import("shared").params;
@@ -45,18 +46,25 @@ fn initSuperBlock(dev: u32) void {
 
 /// Look up and return the inode for a path name.
 /// Must be called inside a transaction since it calls put().
-pub fn lookupPath(path: []const u8) !*Inode {
-    const inode, _ = try lookupPathImpl(path, false);
+pub fn lookupPath(allocator: Allocator, path: []const u8) !*Inode {
+    const inode, _ = try lookupPathImpl(allocator, path, false);
     return inode;
 }
 
 /// Look up and return the parent inode and last path name for a path name.
 /// Must be called inside a transaction since it calls put().
-pub fn lookupParent(path: []const u8) !struct { *Inode, []const u8 } {
-    return try lookupPathImpl(path, true);
+pub fn lookupParent(
+    allocator: Allocator,
+    path: []const u8,
+) !struct { *Inode, []const u8 } {
+    return try lookupPathImpl(allocator, path, true);
 }
 
-fn lookupPathImpl(path: []const u8, parent: bool) !struct { *Inode, []const u8 } {
+fn lookupPathImpl(
+    allocator: Allocator,
+    path: []const u8,
+    parent: bool,
+) !struct { *Inode, []const u8 } {
     var inode = if (std.mem.startsWith(u8, path, "/"))
         getInode(params.ROOT_DEV, defs.ROOT_INUM)
     else
@@ -77,7 +85,7 @@ fn lookupPathImpl(path: []const u8, parent: bool) !struct { *Inode, []const u8 }
             return .{ inode, component };
         }
 
-        const next, _ = lookupInDir(inode, component) orelse
+        const next, _ = lookupInDir(allocator, inode, component) orelse
             return error.InvalidDirectory;
         inode.unlockPut();
         inode = next;
@@ -95,13 +103,18 @@ fn lookupPathImpl(path: []const u8, parent: bool) !struct { *Inode, []const u8 }
 
 /// Look for a directory entry in a directory.
 /// If found, return the corresponding inode and it's byte offset.
-pub fn lookupInDir(dir_inode: *Inode, name: []const u8) ?struct { *Inode, u32 } {
+pub fn lookupInDir(
+    allocator: Allocator,
+    dir_inode: *Inode,
+    name: []const u8,
+) ?struct { *Inode, u32 } {
     assert(dir_inode.dinode.type == @intFromEnum(defs.FileType.dir));
 
     var off: u32 = 0;
     while (off < dir_inode.dinode.size) : (off += @sizeOf(defs.DirEnt)) {
         var dirent: defs.DirEnt = undefined;
         const read = dir_inode.read(
+            allocator,
             .{ .kernel = std.mem.asBytes(&dirent) },
             off,
         ) catch |err| std.debug.panic("failed to read directory entry: {}", .{err});
@@ -120,11 +133,16 @@ pub fn lookupInDir(dir_inode: *Inode, name: []const u8) ?struct { *Inode, u32 } 
 }
 
 /// Write a new directory entry (name, inum) into the directory.
-pub fn linkInDir(dir_inode: *Inode, name: []const u8, inum: u16) !void {
+pub fn linkInDir(
+    allocator: Allocator,
+    dir_inode: *Inode,
+    name: []const u8,
+    inum: u16,
+) !void {
     assert(dir_inode.dinode.type == @intFromEnum(defs.FileType.dir));
 
     // Check that name is not present.
-    if (lookupInDir(dir_inode, name)) |inode| {
+    if (lookupInDir(allocator, dir_inode, name)) |inode| {
         inode.@"0".put();
         return error.DirEntAlreadyExists;
     }
@@ -134,6 +152,7 @@ pub fn linkInDir(dir_inode: *Inode, name: []const u8, inum: u16) !void {
     while (off < dir_inode.dinode.size) : (off += @sizeOf(defs.DirEnt)) {
         var dirent: defs.DirEnt = undefined;
         const read = dir_inode.read(
+            allocator,
             .{ .kernel = std.mem.asBytes(&dirent) },
             off,
         ) catch |err| std.debug.panic("failed to read directory entry: {}", .{err});
@@ -150,6 +169,7 @@ pub fn linkInDir(dir_inode: *Inode, name: []const u8, inum: u16) !void {
     };
     @memcpy(new_dirent.name[0..name.len], name);
     const written = try dir_inode.write(
+        allocator,
         .{ .kernel = std.mem.asBytes(&new_dirent) },
         off,
     );
@@ -470,7 +490,12 @@ pub const Inode = struct {
 
     /// Read data from inode.
     /// Caller must hold inode.mutex.
-    pub fn read(self: *Inode, dest: proc.EitherMem, offset: u32) !u32 {
+    pub fn read(
+        self: *Inode,
+        allocator: Allocator,
+        dest: proc.EitherMem,
+        offset: u32,
+    ) !u32 {
         const num = switch (dest) {
             .user => |dst| dst.len,
             .kernel => |dst| dst.len,
@@ -498,6 +523,7 @@ pub const Inode = struct {
                 .kernel => |dst| .{ .kernel = dst[bytes_read..][0..bytes_to_read] },
             };
             try proc.eitherCopyOut(
+                allocator,
                 dst,
                 buf.data[off % defs.BLOCK_SIZE ..][0..bytes_to_read],
             );
@@ -510,7 +536,12 @@ pub const Inode = struct {
     /// Write data to inode.
     /// Caller must hold inode.mutex.
     /// Returns the number of bytes successfully written.
-    fn write(self: *Inode, source: proc.EitherMem, offset: u32) !u32 {
+    fn write(
+        self: *Inode,
+        allocator: Allocator,
+        source: proc.EitherMem,
+        offset: u32,
+    ) !u32 {
         const num = switch (source) {
             .user => |src| src.len,
             .kernel => |src| src.len,
@@ -536,6 +567,7 @@ pub const Inode = struct {
                 .kernel => |src| .{ .kernel = src[bytes_written..][0..bytes_to_write] },
             };
             try proc.eitherCopyIn(
+                allocator,
                 buf.data[off % defs.BLOCK_SIZE ..][0..bytes_to_write],
                 src,
             );

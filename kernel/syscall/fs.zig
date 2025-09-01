@@ -10,20 +10,22 @@ const OpenMode = shared.file.OpenMode;
 const fs = @import("../fs.zig");
 const file = @import("../fs/file.zig");
 const log = @import("../fs/log.zig");
+const heap = @import("../heap.zig");
 const proc = @import("../proc.zig");
+const riscv = @import("../riscv.zig");
 const syscall = @import("../syscall.zig");
 
 pub fn mknod() !u64 {
     log.beginOp();
     defer log.endOp();
 
-    var path: [params.MAX_PATH:0]u8 = undefined;
-    const path_len = try syscall.strArg(0, &path);
+    var buf: [params.MAX_PATH:0]u8 = undefined;
+    const path = try syscall.strArg(0, &buf);
     const major = syscall.intArg(1);
     const minor = syscall.intArg(2);
 
     const inode = try create(
-        path[0..path_len],
+        path,
         .{ .dev = .{ .major = @intCast(major), .minor = @intCast(minor) } },
     );
     inode.unlockPut();
@@ -32,8 +34,10 @@ pub fn mknod() !u64 {
 }
 
 pub fn open() !u64 {
-    var path: [params.MAX_PATH:0]u8 = undefined;
-    const path_len = try syscall.strArg(0, &path);
+    const allocator = heap.page_allocator;
+
+    var buf: [params.MAX_PATH:0]u8 = undefined;
+    const path = try syscall.strArg(0, &buf);
     const mode = syscall.intArg(1);
 
     log.beginOp();
@@ -43,7 +47,7 @@ pub fn open() !u64 {
         if (mode & OpenMode.CREATE != 0) {
             @panic("todo create");
         } else {
-            const inode = try fs.lookupPath(path[0..path_len]);
+            const inode = try fs.lookupPath(allocator, path);
             inode.lock();
 
             if (inode.dinode.type == @intFromEnum(defs.FileType.dir) and
@@ -103,6 +107,42 @@ pub fn write() !u64 {
     return try f.write(addr, len);
 }
 
+pub fn exec() !u64 {
+    const allocator = heap.page_allocator;
+
+    var buf: [params.MAX_PATH:0]u8 = undefined;
+    const path = try syscall.strArg(0, &buf);
+    const uargv = syscall.rawArg(1);
+
+    var argv: [params.MAX_ARGS]?[:0]u8 = undefined;
+    var i: u64 = 0;
+    defer {
+        for (0..i) |idx| {
+            allocator.free(argv[idx].?);
+        }
+    }
+
+    while (i < params.MAX_PATH) : (i += 1) {
+        const uarg = try syscall.fetchAddr(uargv + @sizeOf(u64) * i);
+        if (uarg == 0) {
+            break;
+        }
+
+        // TODO: don't use the whole page for a small string
+        argv[i] = try allocator.create([riscv.PAGE_SIZE - 1:0]u8);
+        argv[i] = try syscall.fetchStr(argv[i].?, uarg);
+    } else {
+        return error.TooManyArgs;
+    }
+
+    var argv_with_nul: [params.MAX_ARGS]?[:0]const u8 = argv;
+    argv_with_nul[i] = null;
+
+    return try syscall.kexec(path, &argv_with_nul);
+}
+
+/// Common implementation for open with the create flag, mkdir, and mknod
+/// since they all create files.
 fn create(
     path: []const u8,
     ty: union(defs.FileType) {
@@ -111,10 +151,11 @@ fn create(
         dev: struct { major: u16, minor: u16 },
     },
 ) !*fs.Inode {
-    const parent, const name = try fs.lookupParent(path);
+    const allocator = heap.page_allocator;
+    const parent, const name = try fs.lookupParent(allocator, path);
     parent.lock();
 
-    if (fs.lookupInDir(parent, name)) |i| {
+    if (fs.lookupInDir(allocator, parent, name)) |i| {
         parent.unlockPut();
 
         const inode = i.@"0";
@@ -154,7 +195,7 @@ fn create(
 
     // TODO: handle if ty == .dir
 
-    try fs.linkInDir(parent, name, @intCast(inode.inum));
+    try fs.linkInDir(allocator, parent, name, @intCast(inode.inum));
 
     // TODO: handle if ty == .dir
 
@@ -177,7 +218,7 @@ fn allocFd(f: *file.File) !u32 {
 
 /// Fetch the nth word-sized system call argument as a file descriptor
 /// and return both the descriptor and the corresponding struct file.
-fn fdArg(n: u32) !struct { u32, *file.File } {
+fn fdArg(n: u3) !struct { u32, *file.File } {
     const fd = syscall.intArg(n);
     if (fd >= params.NUM_FILE_PER_PROC)
         return error.InvalidFd;
