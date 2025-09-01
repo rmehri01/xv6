@@ -9,6 +9,7 @@ const ERR_VALUE = std.math.maxInt(u64);
 extern fn mknodSys([*:0]const u8, u32, u32) u64;
 extern fn openSys([*:0]const u8, u32) u64;
 extern fn dupSys(u32) u64;
+extern fn readSys(u32, [*]const u8, u64) u64;
 extern fn writeSys(u32, [*]const u8, u64) u64;
 extern fn forkSys() u64;
 extern fn execSys([*:0]const u8, [*]const ?[*:0]const u8) u64;
@@ -47,6 +48,14 @@ pub fn dup(fd: u32) !void {
     if (ret == ERR_VALUE) {
         return error.SyscallFailed;
     }
+}
+
+pub fn read(fd: u32, buf: []u8) !u64 {
+    const ret = readSys(fd, buf.ptr, buf.len);
+    if (ret == ERR_VALUE) {
+        return error.SyscallFailed;
+    }
+    return ret;
 }
 
 pub fn write(fd: u32, buf: []const u8) !u64 {

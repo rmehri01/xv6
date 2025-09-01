@@ -15,7 +15,11 @@ var writer: Writer = .{
 };
 
 pub fn println(comptime fmt: []const u8, args: anytype) void {
-    writer.print(fmt ++ "\n", args) catch {};
+    print(fmt ++ "\n", args);
+}
+
+pub fn print(comptime fmt: []const u8, args: anytype) void {
+    writer.print(fmt, args) catch {};
     writer.flush() catch {};
 }
 

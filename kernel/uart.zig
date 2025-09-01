@@ -2,6 +2,7 @@
 
 const std = @import("std");
 
+const console = @import("console.zig");
 const memlayout = @import("memlayout.zig");
 const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
@@ -99,12 +100,16 @@ pub fn handleIntr() void {
         }
     }
 
-    // TODO: incoming chars
+    // read and process incoming characters.
+    while (getChar()) |char| {
+        console.handleIntr(char);
+    }
 }
 
 /// Try to read one input character from the UART, returning null if none is waiting.
 pub fn getChar() ?u8 {
     if (readReg(.lsr) & LSR_RX_READY == 1) {
+        // input data is ready.
         return readReg(.rhr);
     } else {
         return null;
@@ -114,12 +119,12 @@ pub fn getChar() ?u8 {
 /// Alternate version of put_char() that doesn't use interrupts, for
 /// use by fmt.print() and to echo characters.
 /// It spins waiting for the uart's output register to be empty.
-fn putCharSync(ch: u8) void {
+pub fn putCharSync(char: u8) void {
     riscv.pushIntrOff();
     defer riscv.popIntrOff();
 
     while ((readReg(.lsr) & LSR_TX_IDLE) == 0) {}
-    writeReg(.thr, ch);
+    writeReg(.thr, char);
 }
 
 /// Registers that are readable.

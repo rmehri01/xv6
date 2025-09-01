@@ -33,7 +33,7 @@ pub fn handle() void {
             .exit => sys_proc.exit(),
             .wait => sys_proc.wait(),
             .pipe => @panic("todo pipe"),
-            .read => @panic("todo read"),
+            .read => sys_fs.read(),
             .kill => sys_proc.kill(),
             .exec => sys_fs.exec(),
             .fstat => @panic("todo fstat"),

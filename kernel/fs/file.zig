@@ -11,9 +11,12 @@ const proc = @import("../proc.zig");
 const SpinLock = @import("../sync/SpinLock.zig");
 const Pipe = @import("Pipe.zig");
 
+const ReadError = error{ReadFailed};
+const WriteError = error{ReadFailed};
+
 const DevVTable = struct {
-    read: *const fn (proc.EitherMem) u64,
-    write: *const fn (proc.EitherMem) u64,
+    read: *const fn (proc.EitherMem) ReadError!u64,
+    write: *const fn (proc.EitherMem) WriteError!u64,
 };
 
 /// Map major device number to device functions.
@@ -80,6 +83,26 @@ pub const File = struct {
         return self;
     }
 
+    /// Read from this file.
+    /// addr is a user virtual address.
+    pub fn read(self: *File, addr: u64, len: u32) !u64 {
+        if (!self.readable)
+            return error.NotReadable;
+
+        switch (self.ty) {
+            .device => |dev| {
+                if (dev.major >= params.NUM_DEV)
+                    return error.InvalidDevice;
+                const vtable = dev_vtables[dev.major] orelse
+                    return error.InvalidDevice;
+                return try vtable.read(
+                    .{ .user = .{ .addr = addr, .len = len } },
+                );
+            },
+            else => @panic("file read"),
+        }
+    }
+
     /// Write to this file.
     /// addr is a user virtual address.
     pub fn write(self: *File, addr: u64, len: u32) !u64 {
@@ -92,7 +115,9 @@ pub const File = struct {
                     return error.InvalidDevice;
                 const vtable = dev_vtables[dev.major] orelse
                     return error.InvalidDevice;
-                return vtable.write(.{ .user = .{ .addr = addr, .len = len } });
+                return try vtable.write(
+                    .{ .user = .{ .addr = addr, .len = len } },
+                );
             },
             else => @panic("file write"),
         }

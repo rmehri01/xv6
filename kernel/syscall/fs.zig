@@ -99,6 +99,14 @@ pub fn dup() !u64 {
     return fd;
 }
 
+pub fn read() !u64 {
+    _, const f = try fdArg(0);
+    const addr = syscall.rawArg(1);
+    const len = syscall.intArg(2);
+
+    return try f.read(addr, len);
+}
+
 pub fn write() !u64 {
     _, const f = try fdArg(0);
     const addr = syscall.rawArg(1);
