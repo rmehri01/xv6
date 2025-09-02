@@ -523,6 +523,23 @@ pub fn eitherCopyIn(allocator: Allocator, dst: []u8, src: EitherMem) !void {
     }
 }
 
+/// Grow user memory by bytes.
+pub fn grow(allocator: Allocator, bytes: u32) !void {
+    const proc = myProc().?;
+    var size = proc.private.size;
+
+    if (bytes > 0) {
+        size = try proc.private.page_table.?.grow(
+            allocator,
+            size,
+            size + bytes,
+            .{ .writable = true },
+        );
+    }
+
+    proc.private.size = size;
+}
+
 /// Exit the current process. Does not return.
 /// An exited process remains in the zombie state
 /// until its parent calls wait().

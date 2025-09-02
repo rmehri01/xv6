@@ -22,10 +22,7 @@ pub fn main() !noreturn {
     while (true) {
         fmt.println("init: starting sh", .{});
         switch (try syscall.fork()) {
-            .child => {
-                fmt.println("hello from child!", .{});
-                try syscall.exec("/sh", &.{ "/sh", null });
-            },
+            .child => try syscall.exec("/sh", &.{"/sh"}),
             .parent => |child_pid| while (true) {
                 // this call to wait() returns if the shell exits,
                 // or if a parentless process exits.

@@ -13,7 +13,18 @@ pub fn main() !void {
 
     // Read and run input commands.
     while (getCmd(&buf)) |cmd| {
-        fmt.println("got cmd: {s}", .{cmd});
+        var parts = std.mem.tokenizeAny(u8, cmd, " \t\n");
+        if (parts.next()) |first| {
+            switch (try syscall.fork()) {
+                .child => {
+                    // TODO: more elaborate running of commands
+                    _ = try syscall.exec(first, &.{first});
+                },
+                .parent => _ = try syscall.wait(null),
+            }
+        } else {
+            continue;
+        }
     }
 }
 

@@ -24,3 +24,9 @@ pub const Num = enum(u64) {
     mkdir = 20,
     close = 21,
 };
+
+/// Types of sbrk, either eager or lazy.
+pub const SbrkType = enum(u2) {
+    eager = 1,
+    lazy = 2,
+};

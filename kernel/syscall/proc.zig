@@ -1,5 +1,9 @@
 //! Process related syscall implementations.
 
+const std = @import("std");
+
+const defs = @import("shared").syscall;
+
 const heap = @import("../heap.zig");
 const proc = @import("../proc.zig");
 const syscall = @import("../syscall.zig");
@@ -16,6 +20,32 @@ pub fn exit() noreturn {
 pub fn wait() !u64 {
     const addr = syscall.rawArg(0);
     return try proc.wait(heap.page_allocator, if (addr == 0) null else addr);
+}
+
+pub fn sbrk() !u64 {
+    const p = proc.myProc().?;
+
+    const bytes = syscall.intArg(0);
+    const ty = std.enums.fromInt(
+        defs.SbrkType,
+        syscall.intArg(1),
+    ) orelse return error.UnknownSbrkType;
+    const addr = p.private.size;
+
+    switch (ty) {
+        .eager => try proc.grow(heap.page_allocator, bytes),
+        .lazy => {
+            // Lazily allocate memory for this process: increase its memory
+            // size but don't allocate memory. If the processes uses the
+            // memory, vm.handleFault() will allocate it.
+            if (addr + bytes < addr)
+                return error.SbrkOutOfRange;
+
+            p.private.size += bytes;
+        },
+    }
+
+    return addr;
 }
 
 pub fn kill() !u64 {

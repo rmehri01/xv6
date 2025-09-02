@@ -40,7 +40,7 @@ pub fn handle() void {
             .chdir => @panic("todo chdir"),
             .dup => sys_fs.dup(),
             .getpid => @panic("todo getpid"),
-            .sbrk => @panic("todo sbrk"),
+            .sbrk => sys_proc.sbrk(),
             .pause => @panic("todo pause"),
             .uptime => @panic("todo uptime"),
             .open => sys_fs.open(),

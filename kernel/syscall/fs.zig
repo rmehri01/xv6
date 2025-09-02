@@ -133,6 +133,7 @@ pub fn exec() !u64 {
     while (i < params.MAX_PATH) : (i += 1) {
         const uarg = try syscall.fetchAddr(uargv + @sizeOf(u64) * i);
         if (uarg == 0) {
+            argv[i] = null;
             break;
         }
 
@@ -143,10 +144,7 @@ pub fn exec() !u64 {
         return error.TooManyArgs;
     }
 
-    var argv_with_nul: [params.MAX_ARGS]?[:0]const u8 = argv;
-    argv_with_nul[i] = null;
-
-    return try syscall.kexec(path, &argv_with_nul);
+    return try syscall.kexec(path, &argv);
 }
 
 /// Common implementation for open with the create flag, mkdir, and mknod

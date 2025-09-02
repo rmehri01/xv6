@@ -2,7 +2,10 @@
 
 const std = @import("std");
 
+const params = @import("shared").params;
 const syscall = @import("shared").syscall;
+
+const mem = @import("mem.zig");
 
 const ERR_VALUE = std.math.maxInt(u64);
 
@@ -13,6 +16,7 @@ extern fn readSys(u32, [*]const u8, u64) u64;
 extern fn writeSys(u32, [*]const u8, u64) u64;
 extern fn forkSys() u64;
 extern fn execSys([*:0]const u8, [*]const ?[*:0]const u8) u64;
+extern fn sbrkSys(u32, u32) u64;
 extern fn exitSys(i32) noreturn;
 extern fn waitSys(u64) u64;
 
@@ -28,15 +32,23 @@ comptime {
     }
 }
 
-pub fn mknod(name: [:0]const u8, major: u32, minor: u32) !void {
-    const ret = mknodSys(name.ptr, major, minor);
+pub fn mknod(name: []const u8, major: u32, minor: u32) !void {
+    var buf: [params.MAX_PATH]u8 = undefined;
+    var fixed = std.heap.FixedBufferAllocator.init(&buf);
+    const path = try fixed.allocator().dupeZ(u8, name);
+
+    const ret = mknodSys(path.ptr, major, minor);
     if (ret == ERR_VALUE) {
         return error.SyscallFailed;
     }
 }
 
-pub fn open(name: [:0]const u8, mode: u32) !u32 {
-    const ret = openSys(name.ptr, mode);
+pub fn open(name: []const u8, mode: u32) !u32 {
+    var buf: [params.MAX_PATH]u8 = undefined;
+    var fixed = std.heap.FixedBufferAllocator.init(&buf);
+    const path = try fixed.allocator().dupeZ(u8, name);
+
+    const ret = openSys(path.ptr, mode);
     if (ret == ERR_VALUE) {
         return error.SyscallFailed;
     }
@@ -79,11 +91,35 @@ pub fn fork() !union(enum) { child, parent: u32 } {
     }
 }
 
-pub fn exec(path: [:0]const u8, argv: [*]const ?[*:0]const u8) !void {
-    const ret = execSys(path.ptr, argv);
+pub fn exec(path: []const u8, argv: []const []const u8) !noreturn {
+    // most of the time we can just use the stack but we fallback
+    // to the heap if the path/args are too large
+    var fallback = std.heap.stackFallback(128, mem.allocator);
+    var arena = std.heap.ArenaAllocator.init(fallback.get());
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+    const pathZ = try allocator.dupeZ(u8, path);
+    var argvZ = try allocator.alloc(?[*:0]u8, argv.len + 1);
+    for (0.., argv) |i, arg| {
+        argvZ[i] = try allocator.dupeZ(u8, arg);
+    }
+    argvZ[argv.len] = null;
+
+    const ret = execSys(pathZ.ptr, argvZ.ptr);
+    if (ret == ERR_VALUE) {
+        return error.SyscallFailed;
+    } else {
+        @panic("returned from exec with non-error value");
+    }
+}
+
+pub fn sbrk(bytes: u32, ty: syscall.SbrkType) !u64 {
+    const ret = sbrkSys(bytes, @intFromEnum(ty));
     if (ret == ERR_VALUE) {
         return error.SyscallFailed;
     }
+    return ret;
 }
 
 pub fn exit(status: i32) noreturn {

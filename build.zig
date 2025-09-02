@@ -57,6 +57,18 @@ pub fn build(b: *std.Build) !void {
         "sh",
     };
     inline for (user_progs) |prog| {
+        // the user program module
+        const uprog = b.createModule(.{
+            .root_source_file = b.path(
+                std.fmt.comptimePrint("user/bin/{s}.zig", .{prog}),
+            ),
+            .target = riscv_target,
+            .optimize = .ReleaseSafe,
+            .strip = true,
+        });
+        uprog.addImport("shared", shared);
+        uprog.addImport("ulib", ulib);
+
         // the shim sets up a panic handler and does error handling/exiting
         // so that the user programs can just define main
         const shim = b.addExecutable(.{
@@ -69,20 +81,7 @@ pub fn build(b: *std.Build) !void {
             }),
         });
         shim.setLinkerScript(b.path("user/user.ld"));
-        shim.root_module.addImport("shared", shared);
         shim.root_module.addImport("ulib", ulib);
-
-        const uprog = b.createModule(.{
-            .root_source_file = b.path(
-                std.fmt.comptimePrint("user/bin/{s}.zig", .{prog}),
-            ),
-            .target = riscv_target,
-            .optimize = .ReleaseSafe,
-            .strip = true,
-        });
-        uprog.addImport("shared", shared);
-        uprog.addImport("ulib", ulib);
-
         shim.root_module.addImport("uprog", uprog);
         b.installArtifact(shim);
 

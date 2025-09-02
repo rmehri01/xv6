@@ -124,10 +124,11 @@ fn resize(
     new_len: usize,
     return_address: usize,
 ) bool {
+    assert(riscv.PAGE_SIZE % alignment.toByteUnits() == 0);
     _ = ctx;
     _ = buf;
-    _ = alignment;
     _ = return_address;
+
     return new_len <= riscv.PAGE_SIZE;
 }
 
