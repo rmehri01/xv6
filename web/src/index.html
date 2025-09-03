@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>xv6 on riscv64</title>
+    <meta charset="UTF-8" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/@xterm/xterm@5.5.0/css/xterm.css"
+    />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      #terminal {
+        background-color: black;
+        color: white;
+        height: 100vh;
+        width: 100vw;
+      }
+      .hide {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="terminal"></div>
+    <script src="./load.js"></script>
+    <script type="module">
+      import "https://unpkg.com/@xterm/xterm@5.5.0/lib/xterm.js";
+      import "https://unpkg.com/@xterm/addon-fit@0.10.0/lib/addon-fit.js";
+      import "https://unpkg.com/xterm-pty/index.js";
+      import "./module.js";
+      import initEmscriptenModule from "./out.js";
+
+      const xterm = new Terminal();
+      xterm.open(document.getElementById("terminal"));
+
+      const { master, slave } = openpty();
+
+      xterm.loadAddon(master);
+
+      const fitAddon = new FitAddon.FitAddon();
+      xterm.loadAddon(fitAddon);
+      fitAddon.fit();
+
+      Module.pty = slave;
+      Module["mainScriptUrlOrBlob"] = location.origin + "/out.js";
+      (async () => {
+        const instance = await initEmscriptenModule(Module);
+
+        var oldPoll = Module["TTY"].stream_ops.poll;
+        var pty = Module["pty"];
+        Module["TTY"].stream_ops.poll = function (stream, timeout) {
+          if (!pty.readable) {
+            return (pty.readable ? 1 : 0) | (pty.writable ? 4 : 0);
+          }
+          return oldPoll.call(stream, timeout);
+        };
+      })();
+    </script>
+  </body>
+</html>

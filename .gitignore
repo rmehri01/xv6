@@ -3,3 +3,5 @@ zig-out/
 *.o
 .direnv/
 fs.img
+web/out
+web/qemu-wasm
