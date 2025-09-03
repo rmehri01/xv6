@@ -42,7 +42,7 @@ pub fn handle() void {
             .getpid => @panic("todo getpid"),
             .sbrk => sys_proc.sbrk(),
             .pause => @panic("todo pause"),
-            .uptime => @panic("todo uptime"),
+            .uptime => sys_proc.uptime(),
             .open => sys_fs.open(),
             .write => sys_fs.write(),
             .mknod => sys_fs.mknod(),

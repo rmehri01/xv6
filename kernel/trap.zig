@@ -16,7 +16,7 @@ const riscv = @import("riscv.zig");
 const syscall = @import("syscall.zig");
 const uart = @import("uart.zig");
 
-var ticks: std.atomic.Value(usize) = .init(0);
+pub var ticks: std.atomic.Value(usize) = .init(0);
 
 /// Set up to take exceptions and traps while in the kernel.
 pub fn initHart() void {

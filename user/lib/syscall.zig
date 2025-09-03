@@ -25,6 +25,7 @@ extern fn execSys([*:0]const u8, [*]const ?[*:0]const u8) u64;
 extern fn sbrkSys(u32, u32) u64;
 extern fn exitSys(i32) noreturn;
 extern fn waitSys(u64) u64;
+extern fn uptimeSys() u64;
 
 comptime {
     for (@typeInfo(syscall.Num).@"enum".fields) |field| {
@@ -158,6 +159,10 @@ pub fn wait(status: ?*i32) !u32 {
     }
 
     return @intCast(ret);
+}
+
+pub fn uptime() u64 {
+    return uptimeSys();
 }
 
 /// Tries to coerce str into a CString if it is already nul-terminated,

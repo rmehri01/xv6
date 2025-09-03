@@ -7,6 +7,7 @@ const defs = @import("shared").syscall;
 const heap = @import("../heap.zig");
 const proc = @import("../proc.zig");
 const syscall = @import("../syscall.zig");
+const trap = @import("../trap.zig");
 
 pub fn fork() !u64 {
     return try proc.fork(heap.page_allocator);
@@ -52,4 +53,8 @@ pub fn kill() !u64 {
     const pid = syscall.intArg(0);
     try proc.kill(pid);
     return 0;
+}
+
+pub fn uptime() !u64 {
+    return trap.ticks.load(.acquire);
 }
