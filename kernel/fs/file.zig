@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 const shared = @import("shared");
 const params = shared.params;
@@ -65,7 +66,7 @@ pub const File = struct {
         pipe: *Pipe,
         inode: struct {
             inode: *fs.Inode,
-            off: usize,
+            off: u32,
         },
         device: struct {
             inode: *fs.Inode,
@@ -85,7 +86,7 @@ pub const File = struct {
 
     /// Read from this file.
     /// addr is a user virtual address.
-    pub fn read(self: *File, addr: u64, len: u32) !u64 {
+    pub fn read(self: *File, allocator: Allocator, addr: u64, len: u32) !u64 {
         if (!self.readable)
             return error.NotReadable;
 
@@ -98,6 +99,18 @@ pub const File = struct {
                 return try vtable.read(
                     .{ .user = .{ .addr = addr, .len = len } },
                 );
+            },
+            .inode => |*inode| {
+                inode.inode.lock();
+                defer inode.inode.unlock();
+
+                const bytes_read = try inode.inode.read(
+                    allocator,
+                    .{ .user = .{ .addr = addr, .len = len } },
+                    inode.off,
+                );
+                inode.off += bytes_read;
+                return bytes_read;
             },
             else => @panic("file read"),
         }

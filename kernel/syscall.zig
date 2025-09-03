@@ -49,7 +49,7 @@ pub fn handle() void {
             .unlink => @panic("todo unlink"),
             .link => @panic("todo link"),
             .mkdir => @panic("todo mkdir"),
-            .close => @panic("todo close"),
+            .close => sys_fs.close(),
         } catch std.math.maxInt(u64);
     } else {
         fmt.println(

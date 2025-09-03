@@ -80,7 +80,12 @@ pub fn open() !u64 {
             },
         };
     } else {
-        @panic("todo open file");
+        f.ty = .{
+            .inode = .{
+                .inode = inode,
+                .off = 0,
+            },
+        };
     }
     f.readable = mode & OpenMode.WRITE_ONLY == 0;
     f.writable = (mode & OpenMode.WRITE_ONLY != 0) or
@@ -104,7 +109,7 @@ pub fn read() !u64 {
     const addr = syscall.rawArg(1);
     const len = syscall.intArg(2);
 
-    return try f.read(addr, len);
+    return try f.read(heap.page_allocator, addr, len);
 }
 
 pub fn write() !u64 {
@@ -113,6 +118,16 @@ pub fn write() !u64 {
     const len = syscall.intArg(2);
 
     return try f.write(addr, len);
+}
+
+pub fn close() !u64 {
+    const fd, const f = try fdArg(0);
+
+    const p = proc.myProc().?;
+    p.private.open_files[fd] = null;
+
+    f.close();
+    return 0;
 }
 
 pub fn exec() !u64 {

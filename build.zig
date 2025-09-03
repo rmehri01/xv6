@@ -56,6 +56,7 @@ pub fn build(b: *std.Build) !void {
         "init",
         "sh",
         "echo",
+        "cat",
     };
     inline for (user_progs) |prog| {
         // the user program module
