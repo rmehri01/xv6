@@ -123,7 +123,11 @@ pub fn lookupInDir(
         if (dirent.inum == 0)
             continue;
 
-        if (std.mem.eql(u8, dirent.name[0..name.len], name)) {
+        if (std.mem.eql(
+            u8,
+            std.mem.span(@as([*:0]const u8, @ptrCast(&dirent.name))),
+            name,
+        )) {
             // entry matches path element
             return .{ getInode(dir_inode.dev, dirent.inum), off };
         }

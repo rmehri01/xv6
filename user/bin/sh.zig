@@ -18,7 +18,15 @@ pub fn main() !void {
             switch (try syscall.fork()) {
                 .child => {
                     // TODO: more elaborate running of commands
-                    _ = try syscall.exec(first, &.{first});
+                    var args = try std.ArrayList([]const u8).initCapacity(
+                        ulib.mem.allocator,
+                        8,
+                    );
+                    try args.append(ulib.mem.allocator, first);
+                    while (parts.next()) |part| {
+                        try args.append(ulib.mem.allocator, part);
+                    }
+                    _ = try syscall.exec(first, try args.toOwnedSlice(ulib.mem.allocator));
                 },
                 .parent => _ = try syscall.wait(null),
             }

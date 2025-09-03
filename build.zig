@@ -55,6 +55,7 @@ pub fn build(b: *std.Build) !void {
     const user_progs: []const []const u8 = &.{
         "init",
         "sh",
+        "echo",
     };
     inline for (user_progs) |prog| {
         // the user program module

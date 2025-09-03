@@ -92,7 +92,7 @@ pub fn main() !void {
     while (args.next()) |path| {
         var path_parts = std.mem.splitBackwardsScalar(u8, path, '/');
         const shortName = path_parts.next().?;
-        assert(shortName.len <= fs.DIR_NAME_SIZE);
+        assert(shortName.len < fs.DIR_NAME_SIZE);
 
         const inum = try allocInode(.file);
 
