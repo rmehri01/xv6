@@ -8,7 +8,7 @@ const stderr = &ulib.io.stderr;
 pub fn main() !void {
     const argv = std.os.argv;
     if (argv.len != 3) {
-        stderr.println("Usage: ln old new", .{});
+        stderr.println("usage: ln old new", .{});
         syscall.exit(1);
     }
 

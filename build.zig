@@ -59,6 +59,7 @@ pub fn build(b: *std.Build) !void {
         "cat",
         "ln",
         "uptime",
+        "kill",
     };
     inline for (user_progs) |prog| {
         // the user program module

@@ -13,14 +13,20 @@ pub fn main() !void {
     if (argv.len == 1) {
         try cat(0);
     } else {
+        var err = false;
         for (argv[1..]) |name| {
             const fd = syscall.open(std.mem.span(name), file.OpenMode.READ_ONLY) catch {
                 stderr.println("cat: cannot open {s}", .{name});
+                err = true;
                 continue;
             };
             defer syscall.close(fd) catch {};
 
             try cat(fd);
+        }
+
+        if (err) {
+            syscall.exit(1);
         }
     }
 }
