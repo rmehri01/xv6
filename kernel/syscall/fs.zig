@@ -104,6 +104,49 @@ pub fn dup() !u64 {
     return fd;
 }
 
+pub fn link() !u64 {
+    const allocator = heap.page_allocator;
+
+    var old_buf: [params.MAX_PATH:0]u8 = undefined;
+    const old = try syscall.strArg(0, &old_buf);
+
+    var new_buf: [params.MAX_PATH:0]u8 = undefined;
+    const new = try syscall.strArg(1, &new_buf);
+
+    log.beginOp();
+    defer log.endOp();
+
+    const inode = try fs.lookupPath(allocator, old);
+    inode.lock();
+    errdefer inode.unlockPut();
+
+    if (inode.dinode.type == @intFromEnum(defs.FileType.dir)) {
+        return error.LinkDir;
+    }
+
+    inode.dinode.num_link += 1;
+    inode.update();
+    inode.unlock();
+    errdefer {
+        inode.lock();
+        inode.dinode.num_link -= 1;
+        inode.update();
+    }
+
+    const parent, const name = try fs.lookupParent(allocator, new);
+    parent.lock();
+    errdefer parent.unlockPut();
+
+    if (parent.dev != inode.dev) {
+        return error.LinkDifferentDevice;
+    }
+    try fs.linkInDir(allocator, parent, name, @intCast(inode.inum));
+
+    parent.unlockPut();
+    inode.put();
+    return 0;
+}
+
 pub fn read() !u64 {
     _, const f = try fdArg(0);
     const addr = syscall.rawArg(1);
