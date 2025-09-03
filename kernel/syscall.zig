@@ -130,7 +130,9 @@ pub fn kexec(path: []const u8, argv: [*]const ?[:0]const u8) !u64 {
 
         var hdr_buf: [@sizeOf(elf.Ehdr)]u8 = undefined;
         const read = try inode.read(allocator, .{ .kernel = &hdr_buf }, 0);
-        assert(read == hdr_buf.len);
+        if (read != hdr_buf.len) {
+            return error.InvalidElfHeader;
+        }
 
         var hdr_reader = std.Io.Reader.fixed(&hdr_buf);
         const hdr = try elf.Header.read(&hdr_reader);
