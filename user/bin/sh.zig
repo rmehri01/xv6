@@ -4,7 +4,6 @@ const std = @import("std");
 
 const file = @import("shared").file;
 const ulib = @import("ulib");
-const fmt = ulib.fmt;
 const io = ulib.io;
 const syscall = ulib.syscall;
 
@@ -37,7 +36,7 @@ pub fn main() !void {
 }
 
 fn getCmd(buf: []u8) ?[]const u8 {
-    fmt.print("$ ", .{});
+    io.stderr.print("$ ", .{});
     const str = io.getStr(buf);
 
     if (str.len == 0)

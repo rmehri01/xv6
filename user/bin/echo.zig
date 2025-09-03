@@ -1,15 +1,16 @@
 const std = @import("std");
 
 const ulib = @import("ulib");
-const fmt = ulib.fmt;
+
+const stdout = &ulib.io.stdout;
 
 pub fn main() !void {
     for (1.., std.os.argv[1..]) |i, arg| {
-        fmt.print("{s}", .{arg});
+        stdout.print("{s}", .{arg});
         if (i == std.os.argv.len - 1) {
-            fmt.println("", .{});
+            stdout.println("", .{});
         } else {
-            fmt.print(" ", .{});
+            stdout.print(" ", .{});
         }
     }
 }

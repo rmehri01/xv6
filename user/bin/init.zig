@@ -4,8 +4,9 @@ const std = @import("std");
 
 const file = @import("shared").file;
 const ulib = @import("ulib");
-const fmt = ulib.fmt;
 const syscall = ulib.syscall;
+
+const stderr = &ulib.io.stderr;
 
 pub fn main() !noreturn {
     const fd = syscall.open("console", file.OpenMode.READ_WRITE) catch value: {
@@ -20,7 +21,7 @@ pub fn main() !noreturn {
     try syscall.dup(fd);
 
     while (true) {
-        fmt.println("init: starting sh", .{});
+        stderr.println("init: starting sh", .{});
         switch (try syscall.fork()) {
             .child => try syscall.exec("/sh", &.{"/sh"}),
             .parent => |child_pid| while (true) {

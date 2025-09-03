@@ -1,10 +1,10 @@
 const std = @import("std");
 
-const ulib = @import("ulib");
-const fmt = ulib.fmt;
-const syscall = ulib.syscall;
 const file = @import("shared").file;
+const ulib = @import("ulib");
+const syscall = ulib.syscall;
 
+const stderr = &ulib.io.stderr;
 var buf: [512]u8 = undefined;
 
 pub fn main() !void {
@@ -15,7 +15,7 @@ pub fn main() !void {
     } else {
         for (argv[1..]) |name| {
             const fd = syscall.open(std.mem.span(name), file.OpenMode.READ_ONLY) catch {
-                fmt.println("cat: cannot open {s}", .{name});
+                stderr.println("cat: cannot open {s}", .{name});
                 continue;
             };
             defer syscall.close(fd) catch {};
