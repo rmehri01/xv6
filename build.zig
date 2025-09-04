@@ -65,6 +65,7 @@ pub fn build(b: *std.Build) !void {
         "mkdir",
         "rm",
         "grep",
+        "zombie",
     };
     inline for (user_progs) |prog| {
         // the user program module

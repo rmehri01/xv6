@@ -31,6 +31,7 @@ extern fn sbrkSys(u32, u32) u64;
 extern fn exitSys(i32) noreturn;
 extern fn waitSys(u64) u64;
 extern fn killSys(u32) u64;
+extern fn pauseSys(u64) u64;
 extern fn uptimeSys() u64;
 
 comptime {
@@ -218,6 +219,13 @@ pub fn wait(status: ?*i32) !u32 {
 
 pub fn kill(pid: u32) !void {
     const ret = killSys(pid);
+    if (ret == ERR_VALUE) {
+        return error.SyscallFailed;
+    }
+}
+
+pub fn pause(ticks: u64) !void {
+    const ret = pauseSys(ticks);
     if (ret == ERR_VALUE) {
         return error.SyscallFailed;
     }

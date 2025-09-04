@@ -41,7 +41,7 @@ pub fn handle() void {
             .dup => sys_fs.dup(),
             .getpid => @panic("todo getpid"),
             .sbrk => sys_proc.sbrk(),
-            .pause => @panic("todo pause"),
+            .pause => sys_proc.pause(),
             .uptime => sys_proc.uptime(),
             .open => sys_fs.open(),
             .write => sys_fs.write(),

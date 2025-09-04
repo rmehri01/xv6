@@ -13,10 +13,17 @@ const memlayout = @import("memlayout.zig");
 const plic = @import("plic.zig");
 const proc = @import("proc.zig");
 const riscv = @import("riscv.zig");
+const SpinLock = @import("sync/SpinLock.zig");
 const syscall = @import("syscall.zig");
 const uart = @import("uart.zig");
 
-pub var ticks: std.atomic.Value(usize) = .init(0);
+pub var ticks: struct {
+    mutex: SpinLock,
+    value: usize,
+} = .{
+    .mutex = .{},
+    .value = 0,
+};
 
 /// Set up to take exceptions and traps while in the kernel.
 pub fn initHart() void {
@@ -154,7 +161,10 @@ fn handleDevIntr() enum { unknown, other, timer } {
 /// Handles timer interrupts.
 fn handleClockIntr() void {
     if (riscv.cpuId() == 0) {
-        _ = ticks.fetchAdd(1, .acq_rel);
+        ticks.mutex.lock();
+        defer ticks.mutex.unlock();
+
+        ticks.value += 1;
         proc.wakeUp(@intFromPtr(&ticks));
     }
 

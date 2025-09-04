@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 
 const params = @import("shared").params;
 
+const fmt = @import("fmt.zig");
 const fs = @import("fs.zig");
 const file = @import("fs/file.zig");
 const log = @import("fs/log.zig");
@@ -698,5 +699,25 @@ pub fn kill(pid: Pid) !void {
         }
     } else {
         return error.ProcessNotFound;
+    }
+}
+
+/// Print a process listing to console. For debugging.
+/// Runs when user types ^P on console.
+/// No lock to avoid wedging a stuck machine further.
+pub fn dump() void {
+    fmt.println("", .{});
+    for (&procs) |*proc| {
+        if (proc.public.state == .unused)
+            continue;
+
+        fmt.println(
+            "{d} {any} {s}",
+            .{
+                proc.public.pid.?,
+                proc.public.state,
+                std.mem.sliceTo(&proc.private.name, 0),
+            },
+        );
     }
 }

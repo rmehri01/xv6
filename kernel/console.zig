@@ -132,6 +132,15 @@ pub fn handleIntr(char: u8) void {
     defer console.mutex.unlock();
 
     switch (char) {
+        // Print process list.
+        ctrl('P') => proc.dump(),
+        // Kill line.
+        ctrl('U') => while (console.edit != console.written and
+            console.buf[(console.edit -% 1)] != '\n')
+        {
+            console.edit -= 1;
+            putChar(.backspace);
+        },
         // Backspace or delete key
         ctrl('H'), '\x7f' => {
             if (console.edit != console.written) {

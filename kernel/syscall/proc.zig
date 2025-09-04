@@ -7,7 +7,8 @@ const defs = @import("shared").syscall;
 const heap = @import("../heap.zig");
 const proc = @import("../proc.zig");
 const syscall = @import("../syscall.zig");
-const trap = @import("../trap.zig");
+
+const ticks = &@import("../trap.zig").ticks;
 
 pub fn fork() !u64 {
     return try proc.fork(heap.page_allocator);
@@ -55,6 +56,27 @@ pub fn kill() !u64 {
     return 0;
 }
 
+pub fn pause() !u64 {
+    const n = syscall.intArg(0);
+
+    ticks.mutex.lock();
+    defer ticks.mutex.unlock();
+
+    const ticks0 = ticks.value;
+    while (ticks.value - ticks0 < n) {
+        if (proc.myProc().?.isKilled()) {
+            return error.Killed;
+        }
+
+        proc.sleep(@intFromPtr(ticks), &ticks.mutex);
+    }
+
+    return 0;
+}
+
 pub fn uptime() !u64 {
-    return trap.ticks.load(.acquire);
+    ticks.mutex.lock();
+    defer ticks.mutex.unlock();
+
+    return ticks.value;
 }
