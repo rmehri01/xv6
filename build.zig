@@ -63,6 +63,7 @@ pub fn build(b: *std.Build) !void {
         "wc",
         "ls",
         "mkdir",
+        "rm",
     };
     inline for (user_progs) |prog| {
         // the user program module

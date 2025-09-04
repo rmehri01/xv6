@@ -50,6 +50,9 @@ fn ls(path: [*:0]const u8) !void {
             }
             assert(read == @sizeOf(fs.DirEnt));
 
+            if (dirent.inum == 0)
+                continue;
+
             const name = std.mem.sliceTo(&dirent.name, 0);
             const stat = try syscall.stat(name);
             stdout.println(

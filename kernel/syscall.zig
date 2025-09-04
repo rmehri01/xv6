@@ -46,7 +46,7 @@ pub fn handle() void {
             .open => sys_fs.open(),
             .write => sys_fs.write(),
             .mknod => sys_fs.mknod(),
-            .unlink => @panic("todo unlink"),
+            .unlink => sys_fs.unlink(),
             .link => sys_fs.link(),
             .mkdir => sys_fs.mkdir(),
             .close => sys_fs.close(),

@@ -541,7 +541,7 @@ pub const Inode = struct {
     /// Write data to inode.
     /// Caller must hold inode.mutex.
     /// Returns the number of bytes successfully written.
-    fn write(
+    pub fn write(
         self: *Inode,
         allocator: Allocator,
         source: proc.EitherMem,

@@ -2,6 +2,10 @@
 //! Mostly argument checking, since we don't trust
 //! user code, and calls into fs/file.zig and fs.zig.
 
+const std = @import("std");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+
 const shared = @import("shared");
 const defs = shared.fs;
 const params = shared.params;
@@ -144,6 +148,56 @@ pub fn link() !u64 {
 
     parent.unlockPut();
     inode.put();
+    return 0;
+}
+
+pub fn unlink() !u64 {
+    const allocator = heap.page_allocator;
+
+    var buf: [params.MAX_PATH:0]u8 = undefined;
+    const path = try syscall.strArg(0, &buf);
+
+    log.beginOp();
+    defer log.endOp();
+
+    const parent, const name = try fs.lookupParent(allocator, path);
+    parent.lock();
+    errdefer parent.unlockPut();
+
+    // Cannot unlink "." or "..".
+    if (std.mem.eql(u8, path, ".") or std.mem.eql(u8, path, "..")) {
+        return error.UnlinkFailed;
+    }
+
+    const inode, const off = fs.lookupInDir(allocator, parent, name) orelse
+        return error.FileNotFound;
+    inode.lock();
+    defer inode.unlockPut();
+
+    assert(inode.dinode.num_link != 0);
+    if (inode.dinode.type == @intFromEnum(defs.FileType.dir) and
+        !isDirEmpty(allocator, inode))
+    {
+        return error.NonEmptyDir;
+    }
+
+    var zeros = std.mem.zeroInit(defs.DirEnt, .{});
+    const written = parent.write(
+        allocator,
+        .{ .kernel = std.mem.asBytes(&zeros) },
+        off,
+    ) catch |err| std.debug.panic("unlink: write inode {}", .{err});
+    assert(written == @sizeOf(defs.DirEnt));
+
+    if (inode.dinode.type == @intFromEnum(defs.FileType.dir)) {
+        parent.dinode.num_link -= 1;
+        parent.update();
+    }
+    parent.unlockPut();
+
+    inode.dinode.num_link -= 1;
+    inode.update();
+
     return 0;
 }
 
@@ -342,4 +396,23 @@ fn fdArg(n: u3) !struct { u32, *file.File } {
     const f = proc.myProc().?.private.open_files[fd] orelse
         return error.InvalidFd;
     return .{ fd, f };
+}
+
+/// Is the directory inode empty except for "." and ".." ?
+fn isDirEmpty(allocator: Allocator, inode: *fs.Inode) bool {
+    var off: u32 = 2 * @sizeOf(defs.DirEnt);
+    while (off < inode.dinode.size) : (off += @sizeOf(defs.DirEnt)) {
+        var dirent: defs.DirEnt = undefined;
+        const bytes_read = inode.read(
+            allocator,
+            .{ .kernel = std.mem.asBytes(&dirent) },
+            off,
+        ) catch |err| std.debug.panic("isDirEmpty: read inode {}", .{err});
+        assert(bytes_read == @sizeOf(defs.DirEnt));
+
+        if (dirent.inum != 0)
+            return false;
+    } else {
+        return true;
+    }
 }
