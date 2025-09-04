@@ -60,6 +60,11 @@ fn getCmd(buf: []u8) ?[]const u8 {
         return str;
 }
 
+const Error = error{
+    OutOfMemory,
+    TooManyArgs,
+};
+
 fn parseCmd(allocator: Allocator, cmd: []const u8) !*Cmd {
     var rest = cmd;
     const c = parseLine(allocator, &rest);
@@ -70,10 +75,30 @@ fn parseCmd(allocator: Allocator, cmd: []const u8) !*Cmd {
     return c;
 }
 
-fn parseLine(allocator: Allocator, rest: *[]const u8) !*Cmd {
-    const cmd = try parsePipe(allocator, rest);
+fn parseLine(allocator: Allocator, rest: *[]const u8) Error!*Cmd {
+    var cmd = try parsePipe(allocator, rest);
 
-    // TODO: back/list
+    if (peek(rest.*, "&")) {
+        const tok = getToken(rest);
+        assert(tok.? == .special);
+
+        const background = try allocator.create(Cmd);
+        background.* = .{ .background = .{
+            .cmd = cmd,
+        } };
+        cmd = background;
+    }
+    if (peek(rest.*, ";")) {
+        const tok = getToken(rest);
+        assert(tok.? == .special);
+
+        const list = try allocator.create(Cmd);
+        list.* = .{ .list = .{
+            .left = cmd,
+            .right = try parseLine(allocator, rest),
+        } };
+        cmd = list;
+    }
 
     return cmd;
 }
@@ -88,13 +113,13 @@ fn parsePipe(allocator: Allocator, rest: *[]const u8) !*Cmd {
 
 fn parseExec(allocator: Allocator, rest: *[]const u8) !*Cmd {
     if (peek(rest.*, "(")) {
-        return parseBlock(rest);
+        return try parseBlock(allocator, rest);
     }
 
     const cmd = try allocator.create(Cmd);
-    cmd.* = .{
-        .exec = .{ .args = try .initCapacity(allocator, 8) },
-    };
+    cmd.* = .{ .exec = .{
+        .args = try .initCapacity(allocator, 8),
+    } };
     var ret = cmd;
 
     ret = try parseRedirs(allocator, ret, rest);
@@ -109,10 +134,23 @@ fn parseExec(allocator: Allocator, rest: *[]const u8) !*Cmd {
     return ret;
 }
 
-fn parseBlock(rest: *[]const u8) *Cmd {
+fn parseBlock(allocator: Allocator, rest: *[]const u8) !*Cmd {
     assert(peek(rest.*, "("));
-    // TODO: block
-    @panic("todo");
+
+    const ltok = getToken(rest);
+    assert(ltok.? == .special);
+
+    var cmd = try parseLine(allocator, rest);
+
+    if (!peek(rest.*, ")")) {
+        stderr.println("missing )", .{});
+        syscall.exit(1);
+    }
+    const rtok = getToken(rest);
+    assert(rtok.? == .special);
+
+    cmd = try parseRedirs(allocator, cmd, rest);
+    return cmd;
 }
 
 fn parseRedirs(allocator: Allocator, cmd: *Cmd, rest: *[]const u8) !*Cmd {
@@ -135,14 +173,12 @@ fn parseRedirs(allocator: Allocator, cmd: *Cmd, rest: *[]const u8) !*Cmd {
         };
 
         const redir = try allocator.create(Cmd);
-        redir.* = .{
-            .redir = .{
-                .cmd = cmd,
-                .file = filename.?.tok,
-                .mode = mode,
-                .fd = fd,
-            },
-        };
+        redir.* = .{ .redir = .{
+            .cmd = cmd,
+            .file = filename.?.tok,
+            .mode = mode,
+            .fd = fd,
+        } };
         c = redir;
     }
     return c;
@@ -211,6 +247,13 @@ const Cmd = union(enum) {
         mode: u32,
         fd: u32,
     },
+    list: struct {
+        left: *Cmd,
+        right: *Cmd,
+    },
+    background: struct {
+        cmd: *Cmd,
+    },
 
     fn run(self: *Cmd) noreturn {
         switch (self.*) {
@@ -229,6 +272,29 @@ const Cmd = union(enum) {
                     syscall.exit(1);
                 };
                 r.cmd.run();
+            },
+            .list => |l| {
+                const f = syscall.fork() catch {
+                    stderr.println("fork failed", .{});
+                    syscall.exit(1);
+                };
+                switch (f) {
+                    .child => l.left.run(),
+                    .parent => {
+                        _ = syscall.wait(null) catch unreachable;
+                        l.right.run();
+                    },
+                }
+            },
+            .background => |b| {
+                const f = syscall.fork() catch {
+                    stderr.println("fork failed", .{});
+                    syscall.exit(1);
+                };
+                switch (f) {
+                    .child => b.cmd.run(),
+                    .parent => syscall.exit(0),
+                }
             },
         }
     }
