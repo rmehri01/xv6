@@ -3,6 +3,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const file = @import("shared").file;
 const params = @import("shared").params;
 const syscall = @import("shared").syscall;
 
@@ -19,6 +20,7 @@ extern fn dupSys(Fd) u64;
 extern fn linkSys(CString, CString) u64;
 extern fn readSys(Fd, [*]const u8, u64) u64;
 extern fn writeSys(Fd, [*]const u8, u64) u64;
+extern fn fstatSys(Fd, u64) u64;
 extern fn closeSys(Fd) u64;
 extern fn forkSys() u64;
 extern fn execSys([*:0]const u8, [*]const ?[*:0]const u8) u64;
@@ -96,6 +98,22 @@ pub fn write(fd: u32, buf: []const u8) !u64 {
         return error.SyscallFailed;
     }
     return ret;
+}
+
+pub fn stat(name: anytype) !file.Stat {
+    const fd = try open(name, file.OpenMode.READ_ONLY);
+    defer close(fd) catch {};
+
+    return try fstat(fd);
+}
+
+pub fn fstat(fd: u32) !file.Stat {
+    var st: file.Stat = undefined;
+    const ret = fstatSys(fd, @intFromPtr(&st));
+    if (ret == ERR_VALUE) {
+        return error.SyscallFailed;
+    }
+    return st;
 }
 
 pub fn close(fd: u32) !void {

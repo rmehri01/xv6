@@ -163,6 +163,14 @@ pub fn write() !u64 {
     return try f.write(addr, len);
 }
 
+pub fn fstat() !u64 {
+    _, const f = try fdArg(0);
+    const addr = syscall.rawArg(1);
+
+    try f.stat(heap.page_allocator, addr);
+    return 0;
+}
+
 pub fn close() !u64 {
     const fd, const f = try fdArg(0);
 

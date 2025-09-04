@@ -14,7 +14,7 @@ pub fn main() !void {
     } else {
         var err = false;
         for (argv[1..]) |name| {
-            const fd = syscall.open(std.mem.span(name), file.OpenMode.READ_ONLY) catch {
+            const fd = syscall.open(name, file.OpenMode.READ_ONLY) catch {
                 stderr.println("cat: cannot open {s}", .{name});
                 err = true;
                 continue;

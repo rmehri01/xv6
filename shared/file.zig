@@ -11,3 +11,17 @@ pub const OpenMode = struct {
     pub const CREATE = 0x200;
     pub const TRUNCATE = 0x400;
 };
+
+/// Metadata about a file.
+pub const Stat = extern struct {
+    /// File system's disk device.
+    dev: u32,
+    /// Inode number.
+    inum: u32,
+    /// Type of file.
+    type: u16,
+    /// Number of links to file.
+    num_link: u16,
+    /// Size of file in bytes.
+    size: u64,
+};

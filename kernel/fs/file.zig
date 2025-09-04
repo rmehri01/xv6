@@ -136,6 +136,28 @@ pub const File = struct {
         }
     }
 
+    /// Get metadata about this file.
+    /// addr is a user virtual address, pointing to a struct Stat.
+    pub fn stat(self: *File, allocator: Allocator, addr: u64) !void {
+        const p = proc.myProc().?;
+        switch (self.ty) {
+            inline .inode, .device => |data| {
+                const inode = data.inode;
+
+                inode.lock();
+                const st = inode.stat();
+                inode.unlock();
+
+                try p.private.page_table.?.copyOut(
+                    allocator,
+                    addr,
+                    std.mem.asBytes(&st),
+                );
+            },
+            else => return error.StatFailed,
+        }
+    }
+
     /// Close this file. (Decrement ref count, close when reaches 0.)
     pub fn close(self: *File) void {
         const file = value: {

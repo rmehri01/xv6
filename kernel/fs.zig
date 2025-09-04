@@ -14,6 +14,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const defs = @import("shared").fs;
+const file = @import("shared").file;
 const params = @import("shared").params;
 
 const fmt = @import("fmt.zig");
@@ -590,6 +591,18 @@ pub const Inode = struct {
         self.update();
 
         return bytes_written;
+    }
+
+    // Copy stat information from inode.
+    // Caller must hold ip->lock.
+    pub fn stat(self: *Inode) file.Stat {
+        return .{
+            .dev = self.dev,
+            .inum = self.inum,
+            .type = self.dinode.type,
+            .num_link = self.dinode.num_link,
+            .size = self.dinode.size,
+        };
     }
 
     /// Return the disk block address of the nth block in inode.

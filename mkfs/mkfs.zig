@@ -120,12 +120,6 @@ pub fn main() !void {
         }
     }
 
-    // TODO: why does this need to be done?
-    // fix size of root inode dir
-    var root_inode = try readInode(root_inum);
-    root_inode.size = ((root_inode.size / fs.BLOCK_SIZE) + 1) * fs.BLOCK_SIZE;
-    try writeInode(root_inum, root_inode);
-
     // update bitmap
     const used = next_block;
     log.info("first {d} blocks have been allocated", .{used});
