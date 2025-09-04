@@ -159,6 +159,29 @@ pub fn mkdir() !u64 {
     return 0;
 }
 
+pub fn chdir() !u64 {
+    var buf: [params.MAX_PATH:0]u8 = undefined;
+    const path = try syscall.strArg(0, &buf);
+
+    const p = proc.myProc().?;
+
+    log.beginOp();
+    defer log.endOp();
+
+    const inode = try fs.lookupPath(heap.page_allocator, path);
+    inode.lock();
+    errdefer inode.unlockPut();
+
+    if (inode.dinode.type != @intFromEnum(defs.FileType.dir)) {
+        return error.NotADir;
+    }
+    inode.unlock();
+    p.private.cwd.?.put();
+
+    p.private.cwd = inode;
+    return 0;
+}
+
 pub fn read() !u64 {
     _, const f = try fdArg(0);
     const addr = syscall.rawArg(1);

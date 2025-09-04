@@ -37,7 +37,7 @@ pub fn handle() void {
             .kill => sys_proc.kill(),
             .exec => sys_fs.exec(),
             .fstat => sys_fs.fstat(),
-            .chdir => @panic("todo chdir"),
+            .chdir => sys_fs.chdir(),
             .dup => sys_fs.dup(),
             .getpid => @panic("todo getpid"),
             .sbrk => sys_proc.sbrk(),

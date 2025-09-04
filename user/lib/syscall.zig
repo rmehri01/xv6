@@ -19,6 +19,7 @@ extern fn openSys(CString, u32) u64;
 extern fn dupSys(Fd) u64;
 extern fn linkSys(CString, CString) u64;
 extern fn mkdirSys(CString) u64;
+extern fn chdirSys(CString) u64;
 extern fn readSys(Fd, [*]const u8, u64) u64;
 extern fn writeSys(Fd, [*]const u8, u64) u64;
 extern fn fstatSys(Fd, u64) u64;
@@ -91,6 +92,17 @@ pub fn mkdir(name: anytype) !void {
     const path = try toCString(fixed.allocator(), name);
 
     const ret = mkdirSys(path);
+    if (ret == ERR_VALUE) {
+        return error.SyscallFailed;
+    }
+}
+
+pub fn chdir(name: anytype) !void {
+    var buf: [params.MAX_PATH]u8 = undefined;
+    var fixed = std.heap.FixedBufferAllocator.init(&buf);
+    const path = try toCString(fixed.allocator(), name);
+
+    const ret = chdirSys(path);
     if (ret == ERR_VALUE) {
         return error.SyscallFailed;
     }
