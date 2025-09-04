@@ -449,7 +449,7 @@ pub const Inode = struct {
 
     /// Truncate inode (discard contents).
     /// Caller must hold inode.mutex.
-    fn trunc(self: *Inode) void {
+    pub fn trunc(self: *Inode) void {
         for (0..defs.NUM_DIRECT) |idx| {
             const block_num = self.dinode.addrs[idx];
             if (block_num != 0) {

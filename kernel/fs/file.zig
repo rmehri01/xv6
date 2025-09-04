@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 
 const shared = @import("shared");
 const params = shared.params;
+const defs = shared.fs;
 
 const console = @import("../console.zig");
 const fs = @import("../fs.zig");
@@ -118,7 +119,7 @@ pub const File = struct {
 
     /// Write to this file.
     /// addr is a user virtual address.
-    pub fn write(self: *File, addr: u64, len: u32) !u64 {
+    pub fn write(self: *File, allocator: Allocator, addr: u64, len: u32) !u64 {
         if (!self.writable)
             return error.NotWritable;
 
@@ -131,6 +132,46 @@ pub const File = struct {
                 return try vtable.write(
                     .{ .user = .{ .addr = addr, .len = len } },
                 );
+            },
+            .inode => |*inode| {
+                // write a few blocks at a time to avoid exceeding
+                // the maximum log transaction size, including
+                // i-node, indirect block, allocation blocks,
+                // and 2 blocks of slop for non-aligned writes.
+                const max = ((params.MAX_OP_BLOCKS - 1 - 1 - 2) / 2) * defs.BLOCK_SIZE;
+
+                var written: u64 = 0;
+                while (written < len) {
+                    var bytes_to_write = len - written;
+                    if (bytes_to_write > max)
+                        bytes_to_write = max;
+
+                    log.beginOp();
+                    defer log.endOp();
+
+                    inode.inode.lock();
+                    defer inode.inode.unlock();
+
+                    const wrote = try inode.inode.write(
+                        allocator,
+                        .{
+                            .user = .{
+                                .addr = addr + written,
+                                .len = bytes_to_write,
+                            },
+                        },
+                        inode.off,
+                    );
+                    inode.off += wrote;
+                    written += wrote;
+
+                    if (wrote != bytes_to_write) {
+                        return error.WriteFailed;
+                    }
+                } else {
+                    assert(written == len);
+                    return written;
+                }
             },
             else => @panic("file write"),
         }

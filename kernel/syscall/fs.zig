@@ -49,7 +49,7 @@ pub fn open() !u64 {
 
     const inode = value: {
         if (mode & OpenMode.CREATE != 0) {
-            @panic("todo create");
+            break :value try create(path, .file);
         } else {
             const inode = try fs.lookupPath(allocator, path);
             inode.lock();
@@ -95,7 +95,17 @@ pub fn open() !u64 {
     f.writable = (mode & OpenMode.WRITE_ONLY != 0) or
         (mode & OpenMode.READ_WRITE != 0);
 
-    // TODO: handle trunc
+    if (mode & OpenMode.TRUNCATE != 0 and
+        inode.dinode.type == @intFromEnum(defs.FileType.file))
+    {
+        inode.trunc();
+    }
+
+    if (mode & OpenMode.APPEND != 0 and
+        inode.dinode.type == @intFromEnum(defs.FileType.file))
+    {
+        f.ty.inode.off = inode.dinode.size;
+    }
 
     inode.unlock();
     return fd;
@@ -249,7 +259,7 @@ pub fn write() !u64 {
     const addr = syscall.rawArg(1);
     const len = syscall.intArg(2);
 
-    return try f.write(addr, len);
+    return try f.write(heap.page_allocator, addr, len);
 }
 
 pub fn fstat() !u64 {

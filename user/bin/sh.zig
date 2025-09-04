@@ -1,8 +1,11 @@
 //! Shell.
 
 const std = @import("std");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
-const file = @import("shared").file;
+const OpenMode = @import("shared").file.OpenMode;
+const params = @import("shared").params;
 const ulib = @import("ulib");
 const io = ulib.io;
 const syscall = ulib.syscall;
@@ -33,16 +36,14 @@ pub fn main() !void {
 
         switch (try syscall.fork()) {
             .child => {
-                // TODO: more elaborate running of commands
-                var args = try std.ArrayList([]const u8).initCapacity(
+                const c = parseCmd(
                     ulib.mem.allocator,
-                    8,
-                );
-                try args.append(ulib.mem.allocator, first);
-                while (parts.next()) |part| {
-                    try args.append(ulib.mem.allocator, part);
-                }
-                _ = try syscall.exec(first, try args.toOwnedSlice(ulib.mem.allocator));
+                    cmd[0 .. cmd.len - 1],
+                ) catch |err| {
+                    stderr.println("parsing failed: {}", .{err});
+                    syscall.exit(1);
+                };
+                c.run();
             },
             .parent => _ = try syscall.wait(null),
         }
@@ -58,3 +59,177 @@ fn getCmd(buf: []u8) ?[]const u8 {
     else
         return str;
 }
+
+fn parseCmd(allocator: Allocator, cmd: []const u8) !*Cmd {
+    var rest = cmd;
+    const c = parseLine(allocator, &rest);
+    if (rest.len != 0) {
+        stderr.println("invalid command, leftover: {s}", .{rest});
+        syscall.exit(1);
+    }
+    return c;
+}
+
+fn parseLine(allocator: Allocator, rest: *[]const u8) !*Cmd {
+    const cmd = try parsePipe(allocator, rest);
+
+    // TODO: back/list
+
+    return cmd;
+}
+
+fn parsePipe(allocator: Allocator, rest: *[]const u8) !*Cmd {
+    const cmd = try parseExec(allocator, rest);
+
+    // TODO: pipe
+
+    return cmd;
+}
+
+fn parseExec(allocator: Allocator, rest: *[]const u8) !*Cmd {
+    if (peek(rest.*, "(")) {
+        return parseBlock(rest);
+    }
+
+    const cmd = try allocator.create(Cmd);
+    cmd.* = .{
+        .exec = .{ .args = try .initCapacity(allocator, 8) },
+    };
+    var ret = cmd;
+
+    ret = try parseRedirs(allocator, ret, rest);
+    while (!peek(rest.*, "|)&;")) {
+        const tok = getToken(rest) orelse break;
+        try cmd.exec.args.append(allocator, tok.tok);
+        if (cmd.exec.args.items.len >= params.MAX_ARGS)
+            return error.TooManyArgs;
+        ret = try parseRedirs(allocator, ret, rest);
+    }
+
+    return ret;
+}
+
+fn parseBlock(rest: *[]const u8) *Cmd {
+    assert(peek(rest.*, "("));
+    // TODO: block
+    @panic("todo");
+}
+
+fn parseRedirs(allocator: Allocator, cmd: *Cmd, rest: *[]const u8) !*Cmd {
+    var c = cmd;
+    while (peek(rest.*, "<>")) {
+        const tok = getToken(rest) orelse break;
+        const filename = getToken(rest);
+        if (filename == null or filename.? != .tok) {
+            stderr.println("missing file for redirection", .{});
+            syscall.exit(1);
+        }
+
+        const mode: u32, const fd: u32 = switch (tok.special[0]) {
+            '<' => .{ OpenMode.READ_ONLY, 0 },
+            '>' => if (tok.special.len == 2)
+                .{ OpenMode.WRITE_ONLY | OpenMode.CREATE | OpenMode.APPEND, 1 }
+            else
+                .{ OpenMode.WRITE_ONLY | OpenMode.CREATE | OpenMode.TRUNCATE, 1 },
+            else => unreachable,
+        };
+
+        const redir = try allocator.create(Cmd);
+        redir.* = .{
+            .redir = .{
+                .cmd = cmd,
+                .file = filename.?.tok,
+                .mode = mode,
+                .fd = fd,
+            },
+        };
+        c = redir;
+    }
+    return c;
+}
+
+fn peek(str: []const u8, toks: []const u8) bool {
+    const trimmed = std.mem.trimStart(u8, str, &std.ascii.whitespace);
+    if (trimmed.len == 0)
+        return false;
+    return std.mem.containsAtLeastScalar(u8, toks, 1, trimmed[0]);
+}
+
+fn getToken(rest: *[]const u8) ?union(enum) {
+    special: []const u8,
+    tok: []const u8,
+} {
+    rest.* = std.mem.trimStart(u8, rest.*, &std.ascii.whitespace);
+    if (rest.*.len == 0)
+        return null;
+
+    const rest0 = rest.*;
+    switch (rest0[0]) {
+        '|', '(', ')', ';', '&', '<' => {
+            rest.* = rest.*[1..];
+            return .{ .special = rest0[0..1] };
+        },
+        '>' => {
+            rest.* = rest.*[1..];
+            if (std.mem.startsWith(u8, rest.*, ">")) {
+                rest.* = rest.*[1..];
+                return .{ .special = rest0[0..2] };
+            } else {
+                return .{ .special = rest0[0..1] };
+            }
+        },
+        else => {
+            while (rest.len != 0 and
+                !std.mem.containsAtLeastScalar(
+                    u8,
+                    &std.ascii.whitespace,
+                    1,
+                    rest.*[0],
+                ) and
+                !std.mem.containsAtLeastScalar(
+                    u8,
+                    "<|>&;()",
+                    1,
+                    rest.*[0],
+                ))
+            {
+                rest.* = rest.*[1..];
+            }
+
+            return .{ .tok = rest0[0..(rest0.len - rest.len)] };
+        },
+    }
+}
+
+const Cmd = union(enum) {
+    exec: struct {
+        args: std.ArrayList([]const u8),
+    },
+    redir: struct {
+        cmd: *Cmd,
+        file: []const u8,
+        mode: u32,
+        fd: u32,
+    },
+
+    fn run(self: *Cmd) noreturn {
+        switch (self.*) {
+            .exec => |e| {
+                if (e.args.items.len == 0)
+                    syscall.exit(1);
+                syscall.exec(e.args.items[0], e.args.items) catch {
+                    stderr.println("exec {s} failed", .{e.args.items[0]});
+                    syscall.exit(1);
+                };
+            },
+            .redir => |r| {
+                syscall.close(r.fd) catch {};
+                _ = syscall.open(r.file, r.mode) catch {
+                    stderr.println("open {s} failed", .{r.file});
+                    syscall.exit(1);
+                };
+                r.cmd.run();
+            },
+        }
+    }
+};
