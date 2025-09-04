@@ -48,7 +48,7 @@ pub fn handle() void {
             .mknod => sys_fs.mknod(),
             .unlink => @panic("todo unlink"),
             .link => sys_fs.link(),
-            .mkdir => @panic("todo mkdir"),
+            .mkdir => sys_fs.mkdir(),
             .close => sys_fs.close(),
         } catch std.math.maxInt(u64);
     } else {

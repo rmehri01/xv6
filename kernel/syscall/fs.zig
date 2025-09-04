@@ -147,6 +147,18 @@ pub fn link() !u64 {
     return 0;
 }
 
+pub fn mkdir() !u64 {
+    var buf: [params.MAX_PATH:0]u8 = undefined;
+    const path = try syscall.strArg(0, &buf);
+
+    log.beginOp();
+    defer log.endOp();
+
+    const inode = try create(path, .dir);
+    inode.unlockPut();
+    return 0;
+}
+
 pub fn read() !u64 {
     _, const f = try fdArg(0);
     const addr = syscall.rawArg(1);
@@ -265,11 +277,20 @@ fn create(
     inode.dinode.num_link = 1;
     inode.update();
 
-    // TODO: handle if ty == .dir
+    if (ty == .dir) {
+        // Create . and .. entries.
+        // No inode.num_link += 1 for ".": avoid cyclic ref count.
+        try fs.linkInDir(allocator, inode, ".", @intCast(inode.inum));
+        try fs.linkInDir(allocator, inode, "..", @intCast(parent.inum));
+    }
 
     try fs.linkInDir(allocator, parent, name, @intCast(inode.inum));
 
-    // TODO: handle if ty == .dir
+    if (ty == .dir) {
+        // now that success is guaranteed, +1 link for ".."
+        parent.dinode.num_link += 1;
+        parent.update();
+    }
 
     return inode;
 }
