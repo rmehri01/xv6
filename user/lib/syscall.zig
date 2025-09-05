@@ -19,6 +19,7 @@ extern fn openSys(CString, u32) u64;
 extern fn dupSys(Fd) u64;
 extern fn linkSys(CString, CString) u64;
 extern fn unlinkSys(CString) u64;
+extern fn pipeSys(u64) u64;
 extern fn mkdirSys(CString) u64;
 extern fn chdirSys(CString) u64;
 extern fn readSys(Fd, [*]const u8, u64) u64;
@@ -53,7 +54,7 @@ pub fn mknod(name: anytype, major: u32, minor: u32) !void {
 
     const ret = mknodSys(path, major, minor);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.MknodFailed;
     }
 }
 
@@ -64,7 +65,7 @@ pub fn open(name: anytype, mode: u32) !u32 {
 
     const ret = openSys(path, mode);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.OpenFailed;
     }
     return @intCast(ret);
 }
@@ -72,7 +73,7 @@ pub fn open(name: anytype, mode: u32) !u32 {
 pub fn dup(fd: u32) !void {
     const ret = dupSys(fd);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.DupFailed;
     }
 }
 
@@ -84,7 +85,7 @@ pub fn link(old: anytype, new: anytype) !void {
 
     const ret = linkSys(old_path, new_path);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.LinkFailed;
     }
 }
 
@@ -95,8 +96,19 @@ pub fn unlink(name: anytype) !void {
 
     const ret = unlinkSys(path);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.UnlinkFailed;
     }
+}
+
+pub fn pipe() !struct { rx: u32, tx: u32 } {
+    var fds: [2]u32 = undefined;
+
+    const ret = pipeSys(@intFromPtr(&fds));
+    if (ret == ERR_VALUE) {
+        return error.PipeFailed;
+    }
+
+    return .{ .rx = fds[0], .tx = fds[1] };
 }
 
 pub fn mkdir(name: anytype) !void {
@@ -106,7 +118,7 @@ pub fn mkdir(name: anytype) !void {
 
     const ret = mkdirSys(path);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.MkdirFailed;
     }
 }
 
@@ -117,14 +129,14 @@ pub fn chdir(name: anytype) !void {
 
     const ret = chdirSys(path);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.ChdirFailed;
     }
 }
 
 pub fn read(fd: u32, buf: []u8) !u64 {
     const ret = readSys(fd, buf.ptr, buf.len);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.ReadFailed;
     }
     return ret;
 }
@@ -132,7 +144,7 @@ pub fn read(fd: u32, buf: []u8) !u64 {
 pub fn write(fd: u32, buf: []const u8) !u64 {
     const ret = writeSys(fd, buf.ptr, buf.len);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.WriteFailed;
     }
     return ret;
 }
@@ -148,7 +160,7 @@ pub fn fstat(fd: u32) !file.Stat {
     var st: file.Stat = undefined;
     const ret = fstatSys(fd, @intFromPtr(&st));
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.FstatFailed;
     }
     return st;
 }
@@ -156,14 +168,14 @@ pub fn fstat(fd: u32) !file.Stat {
 pub fn close(fd: u32) !void {
     const ret = closeSys(fd);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.ClosedFailed;
     }
 }
 
 pub fn fork() !union(enum) { child, parent: u32 } {
     const ret = forkSys();
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.ForkFailed;
     }
 
     if (ret == 0) {
@@ -190,7 +202,7 @@ pub fn exec(path: anytype, argv: []const []const u8) !noreturn {
 
     const ret = execSys(pathZ, argvZ.ptr);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.ExecFailed;
     } else {
         @panic("returned from exec with non-error value");
     }
@@ -199,7 +211,7 @@ pub fn exec(path: anytype, argv: []const []const u8) !noreturn {
 pub fn sbrk(bytes: u32, ty: syscall.SbrkType) !u64 {
     const ret = sbrkSys(bytes, @intFromEnum(ty));
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.SbrkFailed;
     }
     return ret;
 }
@@ -211,7 +223,7 @@ pub fn exit(status: i32) noreturn {
 pub fn wait(status: ?*i32) !u32 {
     const ret = waitSys(if (status) |ptr| @intFromPtr(ptr) else 0);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.WaitFailed;
     }
 
     return @intCast(ret);
@@ -220,14 +232,14 @@ pub fn wait(status: ?*i32) !u32 {
 pub fn kill(pid: u32) !void {
     const ret = killSys(pid);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.KillFailed;
     }
 }
 
 pub fn pause(ticks: u64) !void {
     const ret = pauseSys(ticks);
     if (ret == ERR_VALUE) {
-        return error.SyscallFailed;
+        return error.PauseFailed;
     }
 }
 

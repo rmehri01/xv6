@@ -43,7 +43,7 @@ pub fn main() !void {
                     stderr.println("parsing failed: {}", .{err});
                     syscall.exit(1);
                 };
-                c.run();
+                try c.run();
             },
             .parent => _ = try syscall.wait(null),
         }
@@ -104,9 +104,19 @@ fn parseLine(allocator: Allocator, rest: *[]const u8) Error!*Cmd {
 }
 
 fn parsePipe(allocator: Allocator, rest: *[]const u8) !*Cmd {
-    const cmd = try parseExec(allocator, rest);
+    var cmd = try parseExec(allocator, rest);
 
-    // TODO: pipe
+    if (peek(rest.*, "|")) {
+        const tok = getToken(rest);
+        assert(tok.? == .special);
+
+        const pipe = try allocator.create(Cmd);
+        pipe.* = .{ .pipe = .{
+            .left = cmd,
+            .right = try parsePipe(allocator, rest),
+        } };
+        cmd = pipe;
+    }
 
     return cmd;
 }
@@ -254,8 +264,12 @@ const Cmd = union(enum) {
     background: struct {
         cmd: *Cmd,
     },
+    pipe: struct {
+        left: *Cmd,
+        right: *Cmd,
+    },
 
-    fn run(self: *Cmd) noreturn {
+    fn run(self: *Cmd) !noreturn {
         switch (self.*) {
             .exec => |e| {
                 if (e.args.items.len == 0)
@@ -271,31 +285,52 @@ const Cmd = union(enum) {
                     stderr.println("open {s} failed", .{r.file});
                     syscall.exit(1);
                 };
-                r.cmd.run();
+                try r.cmd.run();
             },
             .list => |l| {
-                const f = syscall.fork() catch {
-                    stderr.println("fork failed", .{});
-                    syscall.exit(1);
-                };
-                switch (f) {
-                    .child => l.left.run(),
+                switch (try syscall.fork()) {
+                    .child => try l.left.run(),
                     .parent => {
                         _ = syscall.wait(null) catch unreachable;
-                        l.right.run();
+                        try l.right.run();
                     },
                 }
             },
             .background => |b| {
-                const f = syscall.fork() catch {
-                    stderr.println("fork failed", .{});
-                    syscall.exit(1);
-                };
-                switch (f) {
-                    .child => b.cmd.run(),
-                    .parent => syscall.exit(0),
+                if (try syscall.fork() == .child) {
+                    try b.cmd.run();
                 }
             },
+            .pipe => |p| {
+                const pipe = try syscall.pipe();
+
+                if (try syscall.fork() == .child) {
+                    syscall.close(1) catch {};
+                    try syscall.dup(pipe.tx);
+
+                    syscall.close(pipe.rx) catch {};
+                    syscall.close(pipe.tx) catch {};
+
+                    try p.left.run();
+                }
+                if (try syscall.fork() == .child) {
+                    syscall.close(0) catch {};
+                    try syscall.dup(pipe.rx);
+
+                    syscall.close(pipe.rx) catch {};
+                    syscall.close(pipe.tx) catch {};
+
+                    try p.right.run();
+                }
+
+                syscall.close(pipe.rx) catch {};
+                syscall.close(pipe.tx) catch {};
+
+                _ = try syscall.wait(null);
+                _ = try syscall.wait(null);
+            },
         }
+
+        syscall.exit(0);
     }
 };

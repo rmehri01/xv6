@@ -32,7 +32,7 @@ pub fn handle() void {
             .fork => sys_proc.fork(),
             .exit => sys_proc.exit(),
             .wait => sys_proc.wait(),
-            .pipe => @panic("todo pipe"),
+            .pipe => sys_fs.pipe(),
             .read => sys_fs.read(),
             .kill => sys_proc.kill(),
             .exec => sys_fs.exec(),

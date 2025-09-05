@@ -9,7 +9,9 @@ const defs = shared.fs;
 const console = @import("../console.zig");
 const fs = @import("../fs.zig");
 const log = @import("../fs/log.zig");
+const heap = @import("../heap.zig");
 const proc = @import("../proc.zig");
+const riscv = @import("../riscv.zig");
 const SpinLock = @import("../sync/SpinLock.zig");
 const Pipe = @import("Pipe.zig");
 
@@ -56,6 +58,32 @@ pub fn alloc() !*File {
     } else {
         return error.OutOfFiles;
     }
+}
+
+pub fn pipeAlloc(allocator: Allocator) !struct { rx: *File, tx: *File } {
+    const rx = try alloc();
+    errdefer rx.close();
+    const tx = try alloc();
+    errdefer tx.close();
+
+    const pipe = try allocator.create(Pipe);
+    pipe.* = .init();
+    errdefer allocator.destroy(pipe);
+
+    rx.* = .{
+        .ref_count = rx.ref_count,
+        .readable = true,
+        .writable = false,
+        .ty = .{ .pipe = pipe },
+    };
+    tx.* = .{
+        .ref_count = tx.ref_count,
+        .readable = false,
+        .writable = true,
+        .ty = .{ .pipe = pipe },
+    };
+
+    return .{ .rx = rx, .tx = tx };
 }
 
 pub const File = struct {
@@ -113,6 +141,7 @@ pub const File = struct {
                 inode.off += bytes_read;
                 return bytes_read;
             },
+            .pipe => |p| return p.read(allocator, addr, len),
             else => @panic("file read"),
         }
     }
@@ -173,6 +202,7 @@ pub const File = struct {
                     return written;
                 }
             },
+            .pipe => |p| return p.write(allocator, addr, len),
             else => @panic("file write"),
         }
     }
@@ -217,13 +247,13 @@ pub const File = struct {
         };
 
         switch (file.ty) {
-            .pipe => |pipe| pipe.close(),
             inline .inode, .device => |data| {
                 log.beginOp();
                 defer log.endOp();
 
                 data.inode.put();
             },
+            .pipe => |pipe| pipe.close(heap.page_allocator, file.writable),
             else => unreachable,
         }
     }

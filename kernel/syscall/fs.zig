@@ -14,6 +14,7 @@ const OpenMode = shared.file.OpenMode;
 const fs = @import("../fs.zig");
 const file = @import("../fs/file.zig");
 const log = @import("../fs/log.zig");
+const Pipe = @import("../fs/Pipe.zig");
 const heap = @import("../heap.zig");
 const proc = @import("../proc.zig");
 const riscv = @import("../riscv.zig");
@@ -207,6 +208,37 @@ pub fn unlink() !u64 {
 
     inode.dinode.num_link -= 1;
     inode.update();
+
+    return 0;
+}
+
+pub fn pipe() !u64 {
+    const allocator = heap.page_allocator;
+
+    const addr = syscall.rawArg(0);
+
+    const p = proc.myProc().?;
+    const pi = try file.pipeAlloc(allocator);
+    errdefer {
+        pi.rx.close();
+        pi.tx.close();
+    }
+
+    const rx = try allocFd(pi.rx);
+    errdefer p.private.open_files[rx] = null;
+    const tx = try allocFd(pi.tx);
+    errdefer p.private.open_files[tx] = null;
+
+    try p.private.page_table.?.copyOut(
+        allocator,
+        addr,
+        std.mem.asBytes(&rx),
+    );
+    try p.private.page_table.?.copyOut(
+        allocator,
+        addr + @sizeOf(@TypeOf(rx)),
+        std.mem.asBytes(&tx),
+    );
 
     return 0;
 }
