@@ -54,7 +54,12 @@ fn ls(path: [*:0]const u8) !void {
                 continue;
 
             const name = std.mem.sliceTo(&dirent.name, 0);
-            const stat = try syscall.stat(name);
+            const full_path = try std.fmt.bufPrintZ(
+                &buf,
+                "{s}/{s}",
+                .{ path, name },
+            );
+            const stat = try syscall.stat(full_path);
             stdout.println(
                 "{s: <14} {d} {d} {d}",
                 .{ name, stat.type, stat.inum, stat.size },

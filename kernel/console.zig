@@ -136,7 +136,7 @@ pub fn handleIntr(char: u8) void {
         ctrl('P') => proc.dump(),
         // Kill line.
         ctrl('U') => while (console.edit != console.written and
-            console.buf[(console.edit -% 1)] != '\n')
+            console.buf[console.edit -% 1] != '\n')
         {
             console.edit -= 1;
             putChar(.backspace);
@@ -149,7 +149,7 @@ pub fn handleIntr(char: u8) void {
             }
         },
         else => {
-            if (char != 0 and console.edit - console.read < console.buf.len) {
+            if (char != 0 and console.edit +% 1 != console.read) {
                 const c = if (char == '\r') '\n' else char;
 
                 // echo back to the user.
@@ -161,7 +161,7 @@ pub fn handleIntr(char: u8) void {
 
                 if (c == '\n' or
                     c == ctrl('D') or
-                    console.edit - console.read == console.buf.len)
+                    console.edit +% 1 == console.read)
                 {
                     // wake up read() if a whole line (or end-of-file) has arrived.
                     console.written = console.edit;

@@ -280,7 +280,7 @@ const Cmd = union(enum) {
                 };
             },
             .redir => |r| {
-                syscall.close(r.fd) catch {};
+                try syscall.close(r.fd);
                 _ = syscall.open(r.file, r.mode) catch {
                     stderr.println("open {s} failed", .{r.file});
                     syscall.exit(1);
@@ -305,26 +305,26 @@ const Cmd = union(enum) {
                 const pipe = try syscall.pipe();
 
                 if (try syscall.fork() == .child) {
-                    syscall.close(1) catch {};
+                    try syscall.close(1);
                     try syscall.dup(pipe.tx);
 
-                    syscall.close(pipe.rx) catch {};
-                    syscall.close(pipe.tx) catch {};
+                    try syscall.close(pipe.rx);
+                    try syscall.close(pipe.tx);
 
                     try p.left.run();
                 }
                 if (try syscall.fork() == .child) {
-                    syscall.close(0) catch {};
+                    try syscall.close(0);
                     try syscall.dup(pipe.rx);
 
-                    syscall.close(pipe.rx) catch {};
-                    syscall.close(pipe.tx) catch {};
+                    try syscall.close(pipe.rx);
+                    try syscall.close(pipe.tx);
 
                     try p.right.run();
                 }
 
-                syscall.close(pipe.rx) catch {};
-                syscall.close(pipe.tx) catch {};
+                try syscall.close(pipe.rx);
+                try syscall.close(pipe.tx);
 
                 _ = try syscall.wait(null);
                 _ = try syscall.wait(null);
