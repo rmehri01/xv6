@@ -69,6 +69,7 @@ pub fn build(b: *std.Build) !void {
         "forktest",
         "dorphan",
         "forphan",
+        "logstress",
     };
     inline for (user_progs) |prog| {
         // the user program module
