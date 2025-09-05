@@ -109,7 +109,6 @@ pub fn main() !void {
         );
         defer f.close();
 
-        // TODO: could just pass around readers and writers instead of buffers
         var buf: [fs.BLOCK_SIZE]u8 = undefined;
         while (true) {
             const read = try f.read(&buf);
@@ -137,7 +136,6 @@ fn readSect(sect: usize, buf: *[fs.BLOCK_SIZE]u8) !void {
     _ = try file.readAll(buf);
 }
 
-// TODO: use new reader/writer interface?
 /// Writes buf to the given sector of the disk image.
 fn writeSect(sect: usize, buf: *const [fs.BLOCK_SIZE]u8) !void {
     try file.seekTo(sect * fs.BLOCK_SIZE);

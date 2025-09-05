@@ -219,7 +219,7 @@ pub const File = struct {
                 const st = inode.stat();
                 inode.unlock();
 
-                try p.private.page_table.?.copyOut(
+                try p.private.page_table.copyOut(
                     allocator,
                     addr,
                     std.mem.asBytes(&st),

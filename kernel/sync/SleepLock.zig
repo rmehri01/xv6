@@ -24,7 +24,7 @@ pub fn lock(self: *SleepLock) void {
     }
 
     self.locked = true;
-    self.pid = proc.myProc().?.public.pid.?;
+    self.pid = proc.myProc().?.public.pid;
 }
 
 /// Release the lock. Wakes up anyone else waiting for it.
@@ -42,5 +42,5 @@ pub fn unlock(self: *SleepLock) void {
 pub fn holding(self: *SleepLock) bool {
     self.mutex.lock();
     defer self.mutex.unlock();
-    return self.locked and self.pid.? == proc.myProc().?.public.pid.?;
+    return self.locked and self.pid.? == proc.myProc().?.public.pid;
 }

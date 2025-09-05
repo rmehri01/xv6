@@ -69,7 +69,7 @@ fn lookupPathImpl(
     var inode = if (std.mem.startsWith(u8, path, "/"))
         getInode(params.ROOT_DEV, defs.ROOT_INUM)
     else
-        proc.myProc().?.private.cwd.?.dup();
+        proc.myProc().?.private.cwd.dup();
 
     // iterate over the path components from the root
     var it = std.mem.tokenizeScalar(u8, path, '/');
@@ -126,7 +126,7 @@ pub fn lookupInDir(
 
         if (std.mem.eql(
             u8,
-            std.mem.span(@as([*:0]const u8, @ptrCast(&dirent.name))),
+            std.mem.sliceTo(&dirent.name, 0),
             name,
         )) {
             // entry matches path element
@@ -172,6 +172,9 @@ pub fn linkInDir(
         .inum = inum,
         .name = [_]u8{0} ** defs.DIR_NAME_SIZE,
     };
+    if (name.len > new_dirent.name.len) {
+        return error.NameTooLong;
+    }
     @memcpy(new_dirent.name[0..name.len], name);
     const written = try dir_inode.write(
         allocator,

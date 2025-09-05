@@ -45,7 +45,7 @@ pub fn read(self: *Pipe, allocator: Allocator, addr: u64, len: u32) !u64 {
 
         const char = self.data[self.num_read];
         self.num_read +%= 1;
-        try p.private.page_table.?.copyOut(
+        try p.private.page_table.copyOut(
             allocator,
             addr + i,
             std.mem.asBytes(&char),
@@ -73,7 +73,7 @@ pub fn write(self: *Pipe, allocator: Allocator, addr: u64, len: u32) !u64 {
             proc.sleep(@intFromPtr(&self.num_written), &self.mutex);
         } else {
             var char: u8 = undefined;
-            try p.private.page_table.?.copyIn(
+            try p.private.page_table.copyIn(
                 allocator,
                 std.mem.asBytes(&char),
                 addr + i,

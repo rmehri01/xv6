@@ -22,7 +22,7 @@ const vm = @import("vm.zig");
 /// Main logic for handling a syscall.
 pub fn handle() void {
     const p = proc.myProc().?;
-    const trap_frame = p.private.trap_frame.?;
+    const trap_frame = p.private.trap_frame;
 
     const num = trap_frame.a7;
     if (std.enums.fromInt(SyscallNum, num)) |sys_num| {
@@ -54,7 +54,7 @@ pub fn handle() void {
     } else {
         fmt.println(
             "{d} {s}: unknown sys call {d}",
-            .{ p.public.pid.?, p.private.name, num },
+            .{ p.public.pid, p.private.name, num },
         );
         trap_frame.a0 = std.math.maxInt(u64);
     }
@@ -68,7 +68,7 @@ pub fn intArg(n: u3) u32 {
 /// Fetch the nth word-sized system call argument as a string.
 /// Copies into buf, at most buf.len.
 /// Returns string if OK or error.
-pub fn strArg(n: u3, dst: [:0]u8) ![:0]u8 {
+pub fn strArg(n: u3, dst: []u8) ![:0]u8 {
     const addr = rawArg(n);
     return try fetchStr(dst, addr);
 }
@@ -76,7 +76,7 @@ pub fn strArg(n: u3, dst: [:0]u8) ![:0]u8 {
 /// Fetch the nth system call argument as a raw 64-bit integer.
 pub fn rawArg(n: u3) u64 {
     const p = proc.myProc().?;
-    const trap_frame = p.private.trap_frame.?;
+    const trap_frame = p.private.trap_frame;
 
     return switch (n) {
         0 => trap_frame.a0,
@@ -96,7 +96,7 @@ pub fn fetchAddr(addr: u64) !u64 {
         return error.AddrOutOfRange;
 
     var dst: u64 = undefined;
-    try p.private.page_table.?.copyIn(
+    try p.private.page_table.copyIn(
         heap.page_allocator,
         std.mem.asBytes(&dst),
         addr,
@@ -106,9 +106,9 @@ pub fn fetchAddr(addr: u64) !u64 {
 
 /// Fetch the nul-terminated string at addr from the current process.
 /// Returns string or an error.
-pub fn fetchStr(dst: [:0]u8, src_addr: u64) ![:0]u8 {
+pub fn fetchStr(dst: []u8, src_addr: u64) ![:0]u8 {
     const p = proc.myProc().?;
-    return try p.private.page_table.?.copyInStr(dst, src_addr);
+    return try p.private.page_table.copyInStr(dst, src_addr);
 }
 
 /// The implementation of the exec() system call.
@@ -175,8 +175,6 @@ pub fn kexec(path: []const u8, argv: [*]const ?[:0]const u8) !u64 {
         break :value hdr.entry;
     };
 
-    // TODO: assign myproc again?
-
     const old_size = p.private.size;
 
     // Allocate some pages at the next page boundary.
@@ -226,7 +224,7 @@ pub fn kexec(path: []const u8, argv: [*]const ?[:0]const u8) !u64 {
     // a0 and a1 contain arguments to user main(argc, argv)
     // argc is returned via the system call return
     // value, which goes in a0.
-    p.private.trap_frame.?.a1 = sp;
+    p.private.trap_frame.a1 = sp;
 
     // Save program name for debugging.
     var it = std.mem.splitBackwardsScalar(u8, path, '/');
@@ -236,11 +234,11 @@ pub fn kexec(path: []const u8, argv: [*]const ?[:0]const u8) !u64 {
     @memcpy(p.private.name[0..name_len], name[0..name_len]);
 
     // Commit to the user image.
-    const old_page_table = p.private.page_table.?;
+    const old_page_table = p.private.page_table;
     p.private.page_table = page_table;
     p.private.size = size;
-    p.private.trap_frame.?.epc = entry;
-    p.private.trap_frame.?.sp = sp;
+    p.private.trap_frame.epc = entry;
+    p.private.trap_frame.sp = sp;
     proc.freePageTable(allocator, old_page_table, old_size);
 
     // this ends up in a0, the first argument to main(argc, argv)

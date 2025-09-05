@@ -24,7 +24,7 @@ pub fn mknod() !u64 {
     log.beginOp();
     defer log.endOp();
 
-    var buf: [params.MAX_PATH:0]u8 = undefined;
+    var buf: [params.MAX_PATH]u8 = undefined;
     const path = try syscall.strArg(0, &buf);
     const major = syscall.intArg(1);
     const minor = syscall.intArg(2);
@@ -41,7 +41,7 @@ pub fn mknod() !u64 {
 pub fn open() !u64 {
     const allocator = heap.page_allocator;
 
-    var buf: [params.MAX_PATH:0]u8 = undefined;
+    var buf: [params.MAX_PATH]u8 = undefined;
     const path = try syscall.strArg(0, &buf);
     const mode = syscall.intArg(1);
 
@@ -122,10 +122,10 @@ pub fn dup() !u64 {
 pub fn link() !u64 {
     const allocator = heap.page_allocator;
 
-    var old_buf: [params.MAX_PATH:0]u8 = undefined;
+    var old_buf: [params.MAX_PATH]u8 = undefined;
     const old = try syscall.strArg(0, &old_buf);
 
-    var new_buf: [params.MAX_PATH:0]u8 = undefined;
+    var new_buf: [params.MAX_PATH]u8 = undefined;
     const new = try syscall.strArg(1, &new_buf);
 
     log.beginOp();
@@ -165,7 +165,7 @@ pub fn link() !u64 {
 pub fn unlink() !u64 {
     const allocator = heap.page_allocator;
 
-    var buf: [params.MAX_PATH:0]u8 = undefined;
+    var buf: [params.MAX_PATH]u8 = undefined;
     const path = try syscall.strArg(0, &buf);
 
     log.beginOp();
@@ -229,12 +229,12 @@ pub fn pipe() !u64 {
     const tx = try allocFd(pi.tx);
     errdefer p.private.open_files[tx] = null;
 
-    try p.private.page_table.?.copyOut(
+    try p.private.page_table.copyOut(
         allocator,
         addr,
         std.mem.asBytes(&rx),
     );
-    try p.private.page_table.?.copyOut(
+    try p.private.page_table.copyOut(
         allocator,
         addr + @sizeOf(@TypeOf(rx)),
         std.mem.asBytes(&tx),
@@ -244,7 +244,7 @@ pub fn pipe() !u64 {
 }
 
 pub fn mkdir() !u64 {
-    var buf: [params.MAX_PATH:0]u8 = undefined;
+    var buf: [params.MAX_PATH]u8 = undefined;
     const path = try syscall.strArg(0, &buf);
 
     log.beginOp();
@@ -256,7 +256,7 @@ pub fn mkdir() !u64 {
 }
 
 pub fn chdir() !u64 {
-    var buf: [params.MAX_PATH:0]u8 = undefined;
+    var buf: [params.MAX_PATH]u8 = undefined;
     const path = try syscall.strArg(0, &buf);
 
     const p = proc.myProc().?;
@@ -272,7 +272,7 @@ pub fn chdir() !u64 {
         return error.NotADir;
     }
     inode.unlock();
-    p.private.cwd.?.put();
+    p.private.cwd.put();
 
     p.private.cwd = inode;
     return 0;
@@ -313,19 +313,15 @@ pub fn close() !u64 {
 }
 
 pub fn exec() !u64 {
-    const allocator = heap.page_allocator;
+    var arena = std.heap.ArenaAllocator.init(heap.page_allocator);
+    defer arena.deinit();
 
-    var buf: [params.MAX_PATH:0]u8 = undefined;
+    var buf: [params.MAX_PATH]u8 = undefined;
     const path = try syscall.strArg(0, &buf);
     const uargv = syscall.rawArg(1);
 
     var argv: [params.MAX_ARGS]?[:0]u8 = undefined;
     var i: u64 = 0;
-    defer {
-        for (0..i) |idx| {
-            allocator.free(argv[idx].?);
-        }
-    }
 
     while (i < params.MAX_PATH) : (i += 1) {
         const uarg = try syscall.fetchAddr(uargv + @sizeOf(u64) * i);
@@ -334,9 +330,9 @@ pub fn exec() !u64 {
             break;
         }
 
-        // TODO: don't use the whole page for a small string
-        argv[i] = try allocator.create([riscv.PAGE_SIZE - 1:0]u8);
-        argv[i] = try syscall.fetchStr(argv[i].?, uarg);
+        var uarg_buf: [params.MAX_PATH]u8 = undefined;
+        const uarg_str = try syscall.fetchStr(&uarg_buf, uarg);
+        argv[i] = try arena.allocator().dupeZ(u8, uarg_str);
     } else {
         return error.TooManyArgs;
     }

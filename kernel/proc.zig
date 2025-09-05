@@ -29,20 +29,20 @@ var procs: [params.MAX_PROCS]Process = init: {
     for (0.., &init_procs) |proc_num, *proc| {
         proc.* = .{
             .mutex = .{},
-            .parent = null,
+            .parent = undefined,
             .public = .{
                 .state = .unused,
                 .killed = false,
-                .pid = null,
+                .pid = undefined,
             },
             .private = .{
                 .kstack = vm.kStackVAddr(proc_num),
                 .size = 0,
-                .trap_frame = null,
-                .page_table = null,
-                .context = null,
+                .trap_frame = undefined,
+                .page_table = undefined,
+                .context = undefined,
                 .open_files = .{null} ** params.NUM_FILE_PER_PROC,
-                .cwd = null,
+                .cwd = undefined,
                 .name = .{0} ** 16,
             },
         };
@@ -78,14 +78,14 @@ const Process = struct {
     /// Mutex that protects the public state of the process.
     mutex: SpinLock,
     /// Parent process. The wait_mutex must be held when using this.
-    parent: ?*Process,
+    parent: *Process,
     /// Process mutex must be held while using these.
     public: struct {
         state: ProcessState,
         /// Has the process been killed?
         killed: bool,
         /// Process ID.
-        pid: ?Pid,
+        pid: Pid,
     },
     /// These are private to the process, so p.mutex need not be held.
     private: struct {
@@ -94,13 +94,13 @@ const Process = struct {
         /// Size of process memory (bytes)
         size: u64,
         /// Data page for trampoline.S
-        trap_frame: ?*TrapFrame,
+        trap_frame: *TrapFrame,
         /// User page table.
-        page_table: ?vm.PageTable(.user),
+        page_table: vm.PageTable(.user),
         /// ctxSwitch() here to run process
-        context: ?Context,
+        context: Context,
         /// Current directory
-        cwd: ?*fs.Inode,
+        cwd: *fs.Inode,
         /// Open files
         open_files: [params.NUM_FILE_PER_PROC]?*file.File,
         /// Process name (debugging)
@@ -158,10 +158,7 @@ const Process = struct {
         } else {
             return error.OutOfProcesses;
         };
-        errdefer {
-            proc.free(allocator);
-            proc.mutex.unlock();
-        }
+        errdefer proc.mutex.unlock();
 
         proc.public = .{
             .pid = next_pid.fetchAdd(1, .acq_rel),
@@ -170,8 +167,10 @@ const Process = struct {
         };
         // Allocate a trapframe page.
         proc.private.trap_frame = try allocator.create(TrapFrame);
+        errdefer allocator.destroy(proc.private.trap_frame);
         // An empty user page table.
         proc.private.page_table = try createPageTable(allocator, proc);
+        errdefer freePageTable(allocator, proc.private.page_table, 0);
 
         // Set up new context to start executing at forkret,
         // which returns to user space.
@@ -186,23 +185,32 @@ const Process = struct {
     /// Free a proc structure and the data hanging from it, including user pages.
     /// p.mutex must be held.
     fn free(self: *Process, allocator: Allocator) void {
-        if (self.private.trap_frame) |trap_frame| {
-            allocator.destroy(trap_frame);
-        }
-        if (self.private.page_table) |page_table| {
-            freePageTable(allocator, page_table, self.private.size);
-        }
+        allocator.destroy(self.private.trap_frame);
+        freePageTable(
+            allocator,
+            self.private.page_table,
+            self.private.size,
+        );
 
-        // TODO: others
-        self.parent = null;
-        self.public.state = .unused;
-        self.public.killed = false;
-        self.public.pid = null;
-        self.private.size = 0;
-        self.private.trap_frame = null;
-        self.private.page_table = null;
-        self.private.context = null;
-        self.private.name = .{0} ** self.private.name.len;
+        self.* = .{
+            .mutex = self.mutex,
+            .parent = undefined,
+            .public = .{
+                .state = .unused,
+                .killed = false,
+                .pid = undefined,
+            },
+            .private = .{
+                .kstack = self.private.kstack,
+                .cwd = self.private.cwd,
+                .open_files = self.private.open_files,
+                .size = 0,
+                .trap_frame = undefined,
+                .page_table = undefined,
+                .context = undefined,
+                .name = .{0} ** self.private.name.len,
+            },
+        };
     }
 };
 
@@ -329,7 +337,7 @@ pub fn createPageTable(allocator: Allocator, proc: *Process) !vm.PageTable(.user
     try page_table.mapPages(
         allocator,
         memlayout.TRAP_FRAME,
-        @intFromPtr(proc.private.trap_frame.?),
+        @intFromPtr(proc.private.trap_frame),
         riscv.PAGE_SIZE,
         .{ .readable = true, .writable = true },
     );
@@ -360,14 +368,14 @@ fn forkRet() callconv(.c) void {
 
         // We can invoke kexec() now that file system is initialized.
         // Put the return value (argc) of kexec into a0.
-        proc.private.trap_frame.?.a0 = syscall.kexec("/init", &.{ "/init", null }) catch |err|
+        proc.private.trap_frame.a0 = syscall.kexec("/init", &.{ "/init", null }) catch |err|
             std.debug.panic("failed to exec init program: {}", .{err});
     }
 
     // return to user space, mimicking userTrap()'s return.
     trap.prepareReturn();
 
-    const satp = proc.private.page_table.?.makeSatp();
+    const satp = proc.private.page_table.makeSatp();
     const trampoline_user_ret = memlayout.TRAMPOLINE +
         (@intFromPtr(&userRet) - @intFromPtr(&trampoline));
     @as(*const fn (u64) callconv(.c) void, @ptrFromInt(trampoline_user_ret))(satp);
@@ -402,7 +410,7 @@ pub fn runScheduler() noreturn {
                 // before jumping back to us.
                 proc.public.state = .running;
                 cpu.proc = proc;
-                ctxSwitch(&cpu.context, &proc.private.context.?);
+                ctxSwitch(&cpu.context, &proc.private.context);
 
                 // Process is done running for now.
                 // It should have changed its p->state before coming back.
@@ -430,7 +438,7 @@ fn switchToScheduler() void {
     assert(!riscv.intrGet());
 
     const interrupts_enabled = myCpu().interrupts_enabled;
-    ctxSwitch(&proc.private.context.?, &myCpu().context);
+    ctxSwitch(&proc.private.context, &myCpu().context);
     myCpu().interrupts_enabled = interrupts_enabled;
 }
 
@@ -506,7 +514,7 @@ pub fn eitherCopyOut(allocator: Allocator, dst: EitherMem, src: []const u8) !voi
         .user => |dest| {
             const proc = myProc().?;
             assert(dest.len == src.len);
-            return proc.private.page_table.?.copyOut(allocator, dest.addr, src);
+            return proc.private.page_table.copyOut(allocator, dest.addr, src);
         },
         .kernel => |dest| @memcpy(dest, src),
     }
@@ -518,7 +526,7 @@ pub fn eitherCopyIn(allocator: Allocator, dst: []u8, src: EitherMem) !void {
         .user => |source| {
             const proc = myProc().?;
             assert(source.len == dst.len);
-            return proc.private.page_table.?.copyIn(allocator, dst, source.addr);
+            return proc.private.page_table.copyIn(allocator, dst, source.addr);
         },
         .kernel => |source| @memcpy(dst, source),
     }
@@ -530,14 +538,14 @@ pub fn resize(allocator: Allocator, bytes: i32) !void {
     var size = proc.private.size;
 
     if (bytes > 0) {
-        size = try proc.private.page_table.?.grow(
+        size = try proc.private.page_table.grow(
             allocator,
             size,
             @intCast(size + @abs(bytes)),
             .{ .writable = true },
         );
     } else if (bytes < 0) {
-        size = proc.private.page_table.?.shrink(
+        size = proc.private.page_table.shrink(
             allocator,
             size,
             @intCast(size - @abs(bytes)),
@@ -565,15 +573,15 @@ pub fn exit(status: i32) noreturn {
     }
 
     log.beginOp();
-    proc.private.cwd.?.put();
+    proc.private.cwd.put();
     log.endOp();
-    proc.private.cwd = null;
+    proc.private.cwd = undefined;
 
     wait_mutex.lock();
     // Give any children to init.
     proc.reparentChildren();
     // Parent might be sleeping in wait().
-    wakeUp(@intFromPtr(proc.parent.?));
+    wakeUp(@intFromPtr(proc.parent));
 
     proc.mutex.lock();
     proc.public.state = .{ .zombie = .{ .exit_status = status } };
@@ -597,17 +605,17 @@ pub fn fork(allocator: Allocator) !Pid {
     }
 
     // Copy user memory from parent to child.
-    try parent.private.page_table.?.copyTo(
+    try parent.private.page_table.copyTo(
         allocator,
-        child.private.page_table.?,
+        child.private.page_table,
         parent.private.size,
     );
     child.private.size = parent.private.size;
 
     // Copy saved user registers.
-    child.private.trap_frame.?.* = parent.private.trap_frame.?.*;
+    child.private.trap_frame.* = parent.private.trap_frame.*;
     // Cause fork to return 0 in the child.
-    child.private.trap_frame.?.a0 = 0;
+    child.private.trap_frame.a0 = 0;
 
     // Increment reference counts on open file descriptors.
     for (0..parent.private.open_files.len) |fd| {
@@ -615,10 +623,10 @@ pub fn fork(allocator: Allocator) !Pid {
             child.private.open_files[fd] = f.dup();
         }
     }
-    child.private.cwd = parent.private.cwd.?.dup();
+    child.private.cwd = parent.private.cwd.dup();
     child.private.name = parent.private.name;
 
-    const pid = child.public.pid.?;
+    const pid = child.public.pid;
     child.mutex.unlock();
 
     {
@@ -661,9 +669,9 @@ pub fn wait(allocator: Allocator, out_addr: ?u64) !Pid {
 
                 if (child.public.state == .zombie) {
                     // Found one.
-                    const pid = child.public.pid.?;
+                    const pid = child.public.pid;
                     if (out_addr) |addr| {
-                        try parent.private.page_table.?.copyOut(
+                        try parent.private.page_table.copyOut(
                             allocator,
                             addr,
                             std.mem.asBytes(&child.public.state.zombie),
@@ -720,7 +728,7 @@ pub fn dump() void {
         fmt.println(
             "{d} {any} {s}",
             .{
-                proc.public.pid.?,
+                proc.public.pid,
                 proc.public.state,
                 std.mem.sliceTo(&proc.private.name, 0),
             },

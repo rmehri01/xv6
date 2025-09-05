@@ -116,14 +116,13 @@ export fn kernelTrap() void {
             // give up the CPU if this is a timer interrupt.
             if (proc.myProc()) |p|
                 p.yield();
+
+            // the yield() may have caused some traps to occur,
+            // so restore trap registers for use by kernelVec's sepc instruction.
+            riscv.csrw(.sepc, sepc);
+            riscv.csrw(.sstatus, sstatus);
         },
     }
-
-    // TODO: move after yield?
-    // the yield() may have caused some traps to occur,
-    // so restore trap registers for use by kernelVec's sepc instruction.
-    riscv.csrw(.sepc, sepc);
-    riscv.csrw(.sstatus, sstatus);
 }
 
 // Check if it's an external interrupt or software interrupt, and handle it.
@@ -187,7 +186,7 @@ pub fn prepareReturn() void {
 
     // Set up trapframe values that userVec will need when
     // the process next traps into the kernel.
-    const trap_frame = p.private.trap_frame.?;
+    const trap_frame = p.private.trap_frame;
     // kernel page table
     trap_frame.kernel_satp = riscv.csrr(.satp);
     // process's kernel stack
@@ -224,7 +223,7 @@ fn userTrap() callconv(.c) u64 {
     const p = proc.myProc().?;
 
     // save user program counter.
-    p.private.trap_frame.?.epc = riscv.csrr(.sepc);
+    p.private.trap_frame.epc = riscv.csrr(.sepc);
 
     var is_timer = false;
     const scause = riscv.csrr(.scause);
@@ -236,7 +235,7 @@ fn userTrap() callconv(.c) u64 {
 
         // sepc points to the ecall instruction,
         // but we want to return to the next instruction.
-        p.private.trap_frame.?.epc += 4;
+        p.private.trap_frame.epc += 4;
 
         // an interrupt will change sepc, scause, and sstatus,
         // so enable only now that we're done with those registers.
@@ -249,7 +248,7 @@ fn userTrap() callconv(.c) u64 {
     }) {
         // ok
     } else if ((scause == 15 or scause == 13) and
-        if (p.private.page_table.?.handleFault(
+        if (p.private.page_table.handleFault(
             heap.page_allocator,
             riscv.csrr(.stval),
         )) |_| true else |_| false)
@@ -258,7 +257,7 @@ fn userTrap() callconv(.c) u64 {
     } else {
         fmt.println(
             "unexpected user trap: scause=0x{x} pid={d} sepc=0x{x:0>16} stval=0x{x}",
-            .{ scause, p.public.pid.?, riscv.csrr(.sepc), riscv.csrr(.stval) },
+            .{ scause, p.public.pid, riscv.csrr(.sepc), riscv.csrr(.stval) },
         );
         p.setKilled();
     }
@@ -273,7 +272,7 @@ fn userTrap() callconv(.c) u64 {
     prepareReturn();
 
     // The user page table to switch to, for trampoline.S
-    const satp = p.private.page_table.?.makeSatp();
+    const satp = p.private.page_table.makeSatp();
     // Return to trampoline.S; satp value in a0.
     return satp;
 }

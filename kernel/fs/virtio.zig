@@ -386,11 +386,12 @@ pub fn handleIntr() void {
     // in the next interrupt, which is harmless.
     reg(.interrupt_ack).* = reg(.interrupt_status).* & 0x3;
 
-    // TODO: synchronization?
+    asm volatile ("fence");
 
     // the device increments disk.used.idx when it
     // adds an entry to the used ring.
     while (disk.used_idx != disk.used.idx) : (disk.used_idx +%= 1) {
+        asm volatile ("fence");
         const id = disk.used.ring[disk.used_idx % NUM_DESC].id;
         assert(disk.info[id].status == 0);
         const b = disk.info[id].b;

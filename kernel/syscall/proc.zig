@@ -20,7 +20,7 @@ pub fn exit() noreturn {
 }
 
 pub fn getpid() u64 {
-    return proc.myProc().?.public.pid.?;
+    return proc.myProc().?.public.pid;
 }
 
 pub fn wait() !u64 {
