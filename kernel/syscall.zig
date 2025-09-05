@@ -39,7 +39,7 @@ pub fn handle() void {
             .fstat => sys_fs.fstat(),
             .chdir => sys_fs.chdir(),
             .dup => sys_fs.dup(),
-            .getpid => @panic("todo getpid"),
+            .getpid => sys_proc.getpid(),
             .sbrk => sys_proc.sbrk(),
             .pause => sys_proc.pause(),
             .uptime => sys_proc.uptime(),
@@ -62,7 +62,7 @@ pub fn handle() void {
 
 /// Fetch the nth 32-bit system call argument.
 pub fn intArg(n: u3) u32 {
-    return @intCast(rawArg(n));
+    return @truncate(rawArg(n));
 }
 
 /// Fetch the nth word-sized system call argument as a string.
@@ -232,6 +232,7 @@ pub fn kexec(path: []const u8, argv: [*]const ?[:0]const u8) !u64 {
     var it = std.mem.splitBackwardsScalar(u8, path, '/');
     const name = it.next().?;
     const name_len = @min(p.private.name.len, name.len);
+    @memset(&p.private.name, 0);
     @memcpy(p.private.name[0..name_len], name[0..name_len]);
 
     // Commit to the user image.

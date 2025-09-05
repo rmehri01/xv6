@@ -28,8 +28,9 @@ extern fn fstatSys(Fd, u64) u64;
 extern fn closeSys(Fd) u64;
 extern fn forkSys() u64;
 extern fn execSys([*:0]const u8, [*]const ?[*:0]const u8) u64;
-extern fn sbrkSys(u32, u32) u64;
+extern fn sbrkSys(i32, u32) u64;
 extern fn exitSys(i32) noreturn;
+extern fn getpidSys() u64;
 extern fn waitSys(u64) u64;
 extern fn killSys(u32) u64;
 extern fn pauseSys(u64) u64;
@@ -208,7 +209,7 @@ pub fn exec(path: anytype, argv: []const []const u8) !noreturn {
     }
 }
 
-pub fn sbrk(bytes: u32, ty: syscall.SbrkType) !u64 {
+pub fn sbrk(bytes: i32, ty: syscall.SbrkType) !u64 {
     const ret = sbrkSys(bytes, @intFromEnum(ty));
     if (ret == ERR_VALUE) {
         return error.SbrkFailed;
@@ -218,6 +219,10 @@ pub fn sbrk(bytes: u32, ty: syscall.SbrkType) !u64 {
 
 pub fn exit(status: i32) noreturn {
     exitSys(status);
+}
+
+pub fn getpid() u32 {
+    return @intCast(getpidSys());
 }
 
 pub fn wait(status: ?*i32) !u32 {

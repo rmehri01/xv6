@@ -168,7 +168,7 @@ fn morecore(num_units: u64) ?*SinglyLinkedList.Node {
 
     const addr = syscall.sbrk(
         @intCast(nu * @sizeOf(Header)),
-        defs.SbrkType.eager,
+        defs.SbrkType.lazy,
     ) catch return null;
     var header: *Header = @ptrFromInt(addr);
     header.size = nu;

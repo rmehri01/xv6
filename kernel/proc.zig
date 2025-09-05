@@ -524,8 +524,8 @@ pub fn eitherCopyIn(allocator: Allocator, dst: []u8, src: EitherMem) !void {
     }
 }
 
-/// Grow user memory by bytes.
-pub fn grow(allocator: Allocator, bytes: u32) !void {
+/// Grow or shrink user memory by bytes.
+pub fn resize(allocator: Allocator, bytes: i32) !void {
     const proc = myProc().?;
     var size = proc.private.size;
 
@@ -533,8 +533,14 @@ pub fn grow(allocator: Allocator, bytes: u32) !void {
         size = try proc.private.page_table.?.grow(
             allocator,
             size,
-            size + bytes,
+            @intCast(size + @abs(bytes)),
             .{ .writable = true },
+        );
+    } else if (bytes < 0) {
+        size = proc.private.page_table.?.shrink(
+            allocator,
+            size,
+            @intCast(size - @abs(bytes)),
         );
     }
 

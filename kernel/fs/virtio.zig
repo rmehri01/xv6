@@ -390,7 +390,7 @@ pub fn handleIntr() void {
 
     // the device increments disk.used.idx when it
     // adds an entry to the used ring.
-    while (disk.used_idx != disk.used.idx) : (disk.used_idx += 1) {
+    while (disk.used_idx != disk.used.idx) : (disk.used_idx +%= 1) {
         const id = disk.used.ring[disk.used_idx % NUM_DESC].id;
         assert(disk.info[id].status == 0);
         const b = disk.info[id].b;
