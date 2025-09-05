@@ -14,8 +14,8 @@
         padding: 0;
       }
       #terminal {
-        background-color: black;
-        color: white;
+        background-color: #2e3440;
+        color: #e5e9f0;
         height: 100vh;
         width: 100vw;
       }
@@ -26,7 +26,9 @@
   </head>
   <body>
     <div id="terminal"></div>
+    <script src="./coi-serviceworker.js"></script>
     <script src="./load.js"></script>
+    <script src="./module.js"></script>
     <script type="module">
       import "https://unpkg.com/@xterm/xterm@5.5.0/lib/xterm.js";
       import "https://unpkg.com/@xterm/addon-fit@0.10.0/lib/addon-fit.js";
@@ -34,7 +36,32 @@
       import "./module.js";
       import initEmscriptenModule from "./out.js";
 
-      const xterm = new Terminal();
+      const xterm = new Terminal({
+        fontSize: 14,
+        fontFamily: "monospace",
+        theme: {
+          foreground: "#E5E9F0",
+          background: "#2E3440",
+          selectionBackground: "#3F4758",
+          cursor: "#81A1C1",
+          black: "#3B4252",
+          brightBlack: "#4C566A",
+          red: "#E06C75",
+          brightRed: "#E06C75",
+          green: "#9EC183",
+          brightGreen: "#9EC183",
+          yellow: "#EBCB8B",
+          brightYellow: "#EBCB8B",
+          blue: "#81A1C1",
+          brightBlue: "#81A1C1",
+          magenta: "#B988B0",
+          brightMagenta: "#B988B0",
+          cyan: "#88C0D0",
+          brightCyan: "#8FBCBB",
+          white: "#E5E9F0",
+          brightWhite: "#ECEFF4",
+        },
+      });
       xterm.open(document.getElementById("terminal"));
 
       const { master, slave } = openpty();
@@ -46,7 +73,6 @@
       fitAddon.fit();
 
       Module.pty = slave;
-      Module["mainScriptUrlOrBlob"] = location.origin + "/out.js";
       (async () => {
         const instance = await initEmscriptenModule(Module);
 

@@ -28,3 +28,7 @@ Module["arguments"] = [
   "-kernel",
   "/pack/kernel",
 ];
+Module["locateFile"] = function (path) {
+  return "/xv6/" + path;
+};
+Module["mainScriptUrlOrBlob"] = "/xv6/out.js";
